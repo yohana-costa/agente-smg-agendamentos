@@ -1,0 +1,45 @@
+/* Aba Agentes de IA (prefixo ia-) */
+.ia-status-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.ia-hero {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; background: #fff; box-shadow: var(--shadow); margin-bottom: 14px;
+}
+.ia-hero-title { font-weight: 700; font-size: 15px; }
+.ia-hero-sub { font-size: 13px; color: var(--text-soft); margin-top: 2px; max-width: 680px; }
+.ia-rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.ia-rule { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--bg-accent); font-size: 13px; }
+.ia-rule strong { display: block; margin-bottom: 2px; color: var(--primary-strong); }
+.ia-copy { display: flex; gap: 6px; align-items: stretch; }
+.ia-copy .input { font-size: 12px; }
+.ia-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
+.ia-side .card + .card { margin-top: 14px; }
+
+/* matriz de permissoes */
+.ia-matrix { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ia-matrix th, .ia-matrix td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.ia-matrix th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-soft); background: var(--bg-muted); }
+.ia-matrix th.c, .ia-matrix td.c { text-align: center; width: 100px; }
+.ia-matrix input { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; }
+
+.ia-numero { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; background: #fff; display: flex; gap: 14px; align-items: flex-start; }
+.ia-numero + .ia-numero { margin-top: 10px; }
+.ia-numero.inativo { opacity: 0.65; }
+.ia-numero-main { flex: 1; min-width: 0; }
+.ia-perm-line { font-size: 12px; margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.ia-perm-line .lbl { color: var(--text-soft); font-weight: 600; min-width: 72px; }
+
+/* simulador */
+.ia-sim { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 14px; align-items: start; }
+.ia-sim-chat { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; height: calc(100vh - 260px); min-height: 460px; background: #fff; box-shadow: var(--shadow); }
+.ia-sim-head { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ia-typing { align-self: flex-start; background: #fff; border-radius: 10px; padding: 8px 12px; font-size: 13px; color: var(--text-soft); box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08); }
+.ia-typing span { animation: ia-blink 1.2s infinite; }
+.ia-typing span:nth-child(2) { animation-delay: 0.2s; }
+.ia-typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes ia-blink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+
+.ia-chips-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+@media (max-width: 1100px) {
+  .ia-layout, .ia-sim { grid-template-columns: 1fr; }
+}

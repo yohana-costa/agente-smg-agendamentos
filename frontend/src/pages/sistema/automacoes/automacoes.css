@@ -1,0 +1,26 @@
+/* Aba Automacoes (prefixo au-) */
+.au-list { display: flex; flex-direction: column; gap: 14px; }
+.au-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.au-card.off { background: var(--bg-muted); }
+.au-card.off .au-body { opacity: 0.7; }
+.au-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.au-icon { width: 36px; height: 36px; border-radius: 10px; background: var(--primary-soft); display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0; }
+.au-title { font-weight: 700; font-size: 15px; }
+.au-desc { font-size: 12px; color: var(--text-soft); margin-top: 2px; max-width: 680px; }
+.au-body { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; padding: 14px 16px; }
+.au-timing { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.au-timing .input { width: 90px; }
+.au-timing .select { width: auto; }
+.au-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.au-chip { border: 1px dashed var(--border-strong); background: var(--bg-muted); border-radius: 6px; padding: 2px 7px; font-family: var(--mono); font-size: 11px; cursor: pointer; color: var(--primary-strong); }
+.au-chip:hover { border-style: solid; border-color: var(--primary); background: var(--primary-soft); }
+.au-preview-wrap { background: #efeae2; border-radius: 10px; padding: 14px; min-height: 120px; display: flex; flex-direction: column; }
+.au-preview-label { font-size: 11px; font-weight: 600; color: var(--text-soft); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.au-preview { align-self: flex-end; background: #d9fdd3; border-radius: 10px; border-top-right-radius: 2px; padding: 8px 10px; max-width: 95%; white-space: pre-wrap; font-size: 13.5px; box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08); overflow-wrap: anywhere; }
+.au-var { background: rgba(0, 127, 100, 0.12); border-radius: 4px; padding: 0 2px; }
+.au-var-bad { background: var(--danger-soft); color: var(--danger); border-radius: 4px; padding: 0 2px; }
+.au-foot { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--bg-muted); flex-wrap: wrap; }
+
+@media (max-width: 900px) {
+  .au-body { grid-template-columns: 1fr; }
+}

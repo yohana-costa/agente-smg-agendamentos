@@ -1,0 +1,67 @@
+/* Aba Equipe */
+.eq-top { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
+.eq-top > .card + .card { margin-top: 0; }
+.eq-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+.eq-grid > .card + .card { margin-top: 0; }
+
+.eq-card { cursor: pointer; transition: border-color 0.12s, transform 0.12s; position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
+.eq-card:hover { border-color: var(--primary); transform: translateY(-1px); }
+.eq-card::before { content: ''; position: absolute; left: 0; top: 0; right: 0; height: 4px; background: var(--eq-cor, var(--primary)); }
+.eq-card.eq-inativo { opacity: 0.7; }
+.eq-card-head { display: flex; align-items: center; gap: 12px; }
+.eq-avatar { width: 42px; height: 42px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; background: var(--eq-cor, var(--primary)); }
+.eq-avatar-lg { width: 56px; height: 56px; font-size: 20px; }
+.eq-name { font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eq-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
+.eq-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.eq-kpi { background: var(--bg-muted); border-radius: 8px; padding: 8px 10px; }
+.eq-kpi-label { font-size: 11px; color: var(--text-soft); }
+.eq-kpi-value { font-weight: 700; font-size: 14px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ficha */
+.eq-ficha-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+.eq-ficha-head h2 { font-size: 22px; font-weight: 700; }
+.eq-back { margin-bottom: 12px; }
+
+.eq-colors { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.eq-swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--border-strong); cursor: pointer; padding: 0; }
+.eq-swatch.active { box-shadow: 0 0 0 2px var(--text-main); }
+.eq-color-input { width: 34px; height: 30px; padding: 0; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; cursor: pointer; }
+
+.eq-servicos { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 14px; max-height: 280px; overflow-y: auto; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-muted); }
+.eq-servicos-cat { grid-column: 1 / -1; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-soft); font-weight: 600; margin-top: 6px; }
+.eq-servicos-cat:first-child { margin-top: 0; }
+
+/* jornada */
+.eq-jornada { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.eq-dia { display: grid; grid-template-columns: 150px 1fr; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); align-items: start; }
+.eq-dia:last-child { border-bottom: 0; }
+.eq-dia.eq-folga { background: var(--bg-muted); }
+.eq-dia-nome { font-weight: 600; display: flex; align-items: center; gap: 10px; min-height: 32px; }
+.eq-dia-body { display: flex; flex-direction: column; gap: 8px; }
+.eq-time-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.eq-time-row .input { width: 120px; }
+.eq-pausa { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-left: 12px; border-left: 3px solid var(--border-strong); }
+.eq-pausa .input { width: 110px; }
+
+/* ausencias */
+.eq-aus-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.eq-aus-item:last-child { border-bottom: 0; }
+.eq-aus-icon { width: 36px; height: 36px; border-radius: 10px; background: var(--amber-soft); color: var(--amber); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+/* convite / credenciais */
+.eq-cred { border: 1px dashed var(--primary); background: var(--bg-accent); border-radius: 10px; padding: 14px; display: grid; grid-template-columns: 130px 1fr auto; gap: 8px 12px; align-items: center; }
+.eq-cred-label { font-size: 12px; color: var(--text-soft); font-weight: 600; }
+.eq-cred-value { font-family: var(--mono); font-weight: 600; font-size: 15px; word-break: break-all; }
+
+.eq-google { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.eq-google-icon { width: 38px; height: 38px; border-radius: 10px; background: #fff; border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px; color: #4285f4; flex-shrink: 0; }
+.eq-google-main { flex: 1; min-width: 180px; }
+
+.eq-result-meta + .eq-result-meta { margin-top: 14px; }
+
+@media (max-width: 700px) {
+  .eq-dia { grid-template-columns: 1fr; }
+  .eq-cred { grid-template-columns: 1fr; }
+}
+.eq-scope .grid-2 > .card + .card { margin-top: 0; }

@@ -1,0 +1,86 @@
+import { get } from '../../../lib/api'
+import { dateBr } from '../../../lib/format'
+import { useAsync } from '../../../lib/hooks'
+import { Link } from '../../../lib/router'
+import { Card } from '../../../components/ui'
+import type { ConfigDados } from './shared'
+
+export function Integracoes({ dados }: { dados: ConfigDados }) {
+  const agentes = useAsync(() => get<{ whatsappConectado: boolean; config: { whatsappNumero: string | null; whatsappProvider: string } }>('/agentes'), [])
+  return (
+    <div className="stack">
+      <Card>
+        <div className="cf-integ">
+          <div className="cf-integ-icon">💬</div>
+          <div style={{ flex: 1 }}>
+            <div className="row-between">
+              <div className="card-title">WhatsApp</div>
+              {agentes.loading ? (
+                <span className="badge">Verificando...</span>
+              ) : agentes.data ? (
+                agentes.data.whatsappConectado ? (
+                  <span className="badge badge-success">● Conectado ({agentes.data.config.whatsappProvider === 'meta' ? 'Meta Cloud API' : 'Uazapi'})</span>
+                ) : (
+                  <span className="badge badge-danger">● Não conectado</span>
+                )
+              ) : (
+                <span className="badge">Status indisponível</span>
+              )}
+            </div>
+            <p className="small muted" style={{ margin: '4px 0 10px' }}>
+              Número usado pelo Agente de Atendimento, pelo Agente de Gestão e pelas mensagens automáticas. A conexão (provedor, credenciais e webhook) é configurada na aba Agentes de IA.
+            </p>
+            <Link className="btn btn-sm" to="/app/agentes?tab=whatsapp">
+              Abrir Conexão WhatsApp →
+            </Link>
+          </div>
+        </div>
+      </Card>
+      <Card>
+        <div className="cf-integ">
+          <div className="cf-integ-icon">📆</div>
+          <div style={{ flex: 1 }}>
+            <div className="row-between">
+              <div className="card-title">Google Calendar</div>
+              {dados.integracoes.googleConfigurado ? <span className="badge badge-success">● Disponível</span> : <span className="badge badge-warning">● Não configurado no servidor</span>}
+            </div>
+            <p className="small muted" style={{ margin: '4px 0 10px' }}>
+              Cada profissional conecta a própria conta do Google pelo seu login, na aba Equipe. Os eventos do Google bloqueiam os horários na agenda, no site e no agente.
+              {dados.integracoes.googleConfigurado ? '' : ' A integração ainda não foi habilitada no servidor (credenciais OAuth do Google ausentes).'}
+            </p>
+            <Link className="btn btn-sm" to="/app/equipe">
+              Ir para Equipe →
+            </Link>
+          </div>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+const PLANO_LABEL: Record<string, string> = { ESSENCIAL: 'Essencial', PROFISSIONAL: 'Profissional', PREMIUM: 'Premium' }
+
+export function Plano({ dados }: { dados: ConfigDados }) {
+  const p = dados.plano
+  return (
+    <Card title="Plano" subtitle="Assinatura do estabelecimento com a SMG.">
+      <div className="grid-3">
+        <div className="stat-card">
+          <div className="stat-label">Plano atual</div>
+          <div className="stat-value">{PLANO_LABEL[p.plano] || p.plano}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Situação</div>
+          <div className="stat-value">{p.ativo ? <span className="success-text">Ativo</span> : <span className="danger-text">Inativo</span>}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Cliente desde</div>
+          <div className="stat-value">{dateBr(String(p.desde).slice(0, 10))}</div>
+        </div>
+      </div>
+      <p className="small muted" style={{ marginTop: 12 }}>
+        Para mudar de plano ou tirar dúvidas sobre a assinatura, fale com o suporte da SMG.
+      </p>
+    </Card>
+  )
+}

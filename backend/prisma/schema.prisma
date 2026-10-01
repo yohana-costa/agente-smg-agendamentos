@@ -1,0 +1,803 @@
+// Gestor SMG Agendamentos
+// Convencoes:
+// - Todos os valores monetarios sao inteiros em CENTAVOS.
+// - Todas as tabelas de negocio carregam tenantId (multi-tenant por coluna).
+// - Telefones sao armazenados apenas com digitos, com DDI (ex.: 5511999998888).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Perfil {
+  DONO
+  RECEPCAO
+  PROFISSIONAL
+}
+
+enum StatusAgendamento {
+  AGUARDANDO_PAGAMENTO
+  CONFIRMADO
+  EM_ATENDIMENTO
+  CONCLUIDO
+  CANCELADO
+  NO_SHOW
+}
+
+enum OrigemAgendamento {
+  SITE
+  AGENTE
+  MANUAL
+}
+
+enum ModoPagamento {
+  ONLINE
+  LOCAL
+}
+
+enum FormaPagamento {
+  PIX
+  CARTAO
+  DINHEIRO
+  MAQUININHA
+}
+
+enum StatusPagamento {
+  PENDENTE
+  APROVADO
+  REEMBOLSADO
+  REEMBOLSADO_PARCIAL
+  CANCELADO
+  EXPIRADO
+}
+
+enum OrigemPagamento {
+  SITE
+  AGENTE
+  MANUAL
+  BALCAO
+  OUTRO
+}
+
+enum RegraReembolso {
+  DENTRO_PRAZO
+  FORA_PRAZO
+  NO_SHOW
+  ESTABELECIMENTO
+}
+
+enum OrigemVenda {
+  SITE
+  BALCAO
+}
+
+enum StatusVenda {
+  AGUARDANDO_PAGAMENTO
+  PAGO
+  CANCELADO
+}
+
+enum StatusConversa {
+  ATIVO
+  PAUSADO
+  ESCALONADO
+}
+
+enum CanalConversa {
+  ATENDIMENTO
+  GESTAO
+}
+
+enum AutorMensagem {
+  CLIENTE
+  AGENTE
+  HUMANO
+  SISTEMA
+}
+
+enum TipoAutomacao {
+  LEMBRETE_PAGAMENTO
+  CONFIRMACAO
+  LEMBRETE_ATENDIMENTO
+  POS_ATENDIMENTO
+  AVISO_RETORNO
+  AVISO_REAGENDAMENTO
+  AVISO_CANCELAMENTO
+}
+
+enum TipoMovimentoPontos {
+  GANHO
+  USO
+  AJUSTE
+}
+
+enum TipoRecompensa {
+  SERVICO_GRATIS
+  SERVICO_DESCONTO
+}
+
+enum TipoCupom {
+  PERCENTUAL
+  VALOR
+}
+
+enum RemuneracaoTipo {
+  COMISSAO
+  FIXO
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  nome      String
+  documento String?
+  telefone  String?
+  email     String?
+  endereco  String?
+  timezone  String   @default("America/Sao_Paulo")
+
+  // Politicas (Configuracoes > Politicas)
+  prazoCancelamentoMin     Int     @default(180) // prazo para reembolso integral, em minutos
+  reembolsoForaPrazoPct    Int     @default(0)
+  reembolsoNoShowPct       Int     @default(0)
+  // Ponto em aberto (escopo 17): taxa do gateway em reembolso integral.
+  // false = estabelecimento absorve a taxa (cliente recebe 100%); true = desconta a taxa do valor devolvido.
+  reembolsoIntegralDescontaTaxa Boolean @default(false)
+
+  // Agenda
+  toleranciaPendenteMin Int @default(10)
+  intervaloSlotsMin     Int @default(60)
+
+  // Metas
+  metaServicosMes Int @default(0)
+  metaValorMes    Int @default(0)
+
+  // Modulos
+  venderProdutos  Boolean @default(false)
+  fidelidadeAtiva Boolean @default(false)
+  pontosPorReal         Int @default(1) // pontos ganhos por R$ 1,00 pago
+  pontosPorAtendimento  Int @default(0)
+
+  // Site
+  siteTitulo      String?
+  siteDescricao   String?
+  siteCorPrimaria String  @default("#007f64")
+  siteLogoUrl     String?
+  siteBannerUrl   String?
+
+  // Pagamentos (gateway SMG -> Mercado Pago)
+  mpAccessToken String?
+  mpPublicKey   String?
+
+  // Permissoes por perfil (Configuracoes > Usuarios e permissoes)
+  permissoesPerfis Json @default("{}")
+
+  plano     String   @default("ESSENCIAL")
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  usuarios        Usuario[]
+  profissionais   Profissional[]
+  horarios        HorarioFuncionamento[]
+  diasFechados    DiaFechado[]
+  bloqueios       Bloqueio[]
+  servicos        Servico[]
+  produtos        Produto[]
+  clientes        Cliente[]
+  agendamentos    Agendamento[]
+  pagamentos      Pagamento[]
+  reembolsos      Reembolso[]
+  vendas          Venda[]
+  despesas        Despesa[]
+  comissoesPagas  ComissaoPaga[]
+  recompensas     Recompensa[]
+  cupons          Cupom[]
+  movimentosPontos MovimentoPontos[]
+  agenteConfig    AgenteConfig?
+  numerosAutorizados NumeroAutorizado[]
+  conversas       Conversa[]
+  automacoes      Automacao[]
+  automacaoEnvios AutomacaoEnvio[]
+  codigosVerificacao CodigoVerificacao[]
+}
+
+model Usuario {
+  id             String   @id @default(cuid())
+  tenantId       String
+  nome           String
+  email          String   @unique
+  senhaHash      String
+  perfil         Perfil
+  profissionalId String?  @unique
+  ativo          Boolean  @default(true)
+  ultimoLoginEm  DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  profissional Profissional? @relation(fields: [profissionalId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+}
+
+model HorarioFuncionamento {
+  id         String  @id @default(cuid())
+  tenantId   String
+  diaSemana  Int // 0 = domingo ... 6 = sabado
+  aberto     Boolean @default(true)
+  inicio     String  @default("08:00")
+  fim        String  @default("18:00")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, diaSemana])
+}
+
+model DiaFechado {
+  id        String   @id @default(cuid())
+  tenantId  String
+  data      String // YYYY-MM-DD (fechado fora da rotina)
+  motivo    String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, data])
+}
+
+model Profissional {
+  id              String          @id @default(cuid())
+  tenantId        String
+  nome            String
+  telefone        String?
+  email           String?
+  cor             String          @default("#007f64")
+  ativo           Boolean         @default(true)
+  remuneracaoTipo RemuneracaoTipo @default(COMISSAO)
+  comissaoPct     Int             @default(0)
+  valorFixo       Int             @default(0)
+  metaServicosMes Int             @default(0)
+  metaValorMes    Int             @default(0)
+
+  googleConectado    Boolean   @default(false)
+  googleEmail        String?
+  googleRefreshToken String?
+  googleCalendarId   String?   @default("primary")
+  googleSyncEm       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  usuario      Usuario?
+  jornada      JornadaProfissional[]
+  ausencias    Ausencia[]
+  bloqueios    Bloqueio[]
+  eventos      EventoExterno[]
+  servicos     ServicoProfissional[]
+  agendamentos Agendamento[]
+  comissoesPagas ComissaoPaga[]
+
+  @@index([tenantId])
+}
+
+model JornadaProfissional {
+  id             String  @id @default(cuid())
+  profissionalId String
+  diaSemana      Int
+  trabalha       Boolean @default(true)
+  inicio         String  @default("08:00")
+  fim            String  @default("18:00")
+  pausas         Json    @default("[]") // [{ "inicio": "12:00", "fim": "13:00" }]
+
+  profissional Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+
+  @@unique([profissionalId, diaSemana])
+}
+
+model Ausencia {
+  id             String   @id @default(cuid())
+  profissionalId String
+  inicio         DateTime
+  fim            DateTime
+  motivo         String?
+  createdAt      DateTime @default(now())
+
+  profissional Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+
+  @@index([profissionalId, inicio])
+}
+
+model Bloqueio {
+  id             String   @id @default(cuid())
+  tenantId       String
+  profissionalId String
+  inicio         DateTime
+  fim            DateTime
+  motivo         String?
+  // Quando semanal, repete toda semana no mesmo dia/horario a partir de "inicio".
+  semanal        Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  profissional Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, inicio])
+}
+
+model EventoExterno {
+  id             String   @id @default(cuid())
+  profissionalId String
+  externalId     String
+  titulo         String?
+  inicio         DateTime
+  fim            DateTime
+
+  profissional Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+
+  @@unique([profissionalId, externalId])
+  @@index([profissionalId, inicio])
+}
+
+model Servico {
+  id             String   @id @default(cuid())
+  tenantId       String
+  nome           String
+  categoria      String?
+  descricao      String?
+  preco          Int
+  duracaoMin     Int
+  intervaloMin   Int      @default(0)
+  retornoDias    Int?
+  ativo          Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant        Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  profissionais ServicoProfissional[]
+  relacionados  ServicoProduto[]
+  itens         AgendamentoServico[]
+  recompensas   Recompensa[]
+
+  @@index([tenantId])
+}
+
+model ServicoProfissional {
+  servicoId      String
+  profissionalId String
+
+  servico      Servico      @relation(fields: [servicoId], references: [id], onDelete: Cascade)
+  profissional Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+
+  @@id([servicoId, profissionalId])
+}
+
+model ServicoProduto {
+  servicoId String
+  produtoId String
+
+  servico Servico @relation(fields: [servicoId], references: [id], onDelete: Cascade)
+  produto Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
+  @@id([servicoId, produtoId])
+}
+
+model Produto {
+  id            String   @id @default(cuid())
+  tenantId      String
+  nome          String
+  descricao     String?
+  estoque       Int      @default(0)
+  custo         Int      @default(0)
+  preco         Int
+  estoqueMinimo Int      @default(0)
+  ativo         Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  servicos     ServicoProduto[]
+  itensVenda   VendaItem[]
+  itensAgenda  AgendamentoProduto[]
+
+  @@index([tenantId])
+}
+
+model Cliente {
+  id                String    @id @default(cuid())
+  tenantId          String
+  nome              String
+  telefone          String
+  email             String?
+  observacoes       String?
+  pontos            Int       @default(0)
+  senhaHash         String?
+  portalAtivo       Boolean   @default(false)
+  mescladoEmId      String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agendamentos Agendamento[]
+  pagamentos   Pagamento[]
+  vendas       Venda[]
+  reembolsos   Reembolso[]
+  movimentos   MovimentoPontos[]
+  cupons       Cupom[]
+  conversas    Conversa[]
+
+  @@unique([tenantId, telefone])
+  @@index([tenantId, nome])
+}
+
+model Agendamento {
+  id             String            @id @default(cuid())
+  tenantId       String
+  clienteId      String
+  profissionalId String
+  inicio         DateTime
+  fim            DateTime // fim do atendimento previsto (sem o ultimo intervalo)
+  fimIntervalo   DateTime // fim da ocupacao na agenda (com intervalos)
+  status         StatusAgendamento @default(AGUARDANDO_PAGAMENTO)
+  origem         OrigemAgendamento @default(MANUAL)
+  modoPagamento  ModoPagamento     @default(ONLINE)
+  valorServicos  Int               @default(0)
+  valorProdutos  Int               @default(0)
+  desconto       Int               @default(0)
+  valorTotal     Int               @default(0)
+  cupomId        String?
+  recompensaId   String?
+  expiraEm       DateTime?
+  expirado       Boolean           @default(false)
+  encaixe        Boolean           @default(false)
+  observacoes    String?
+  iniciadoEm     DateTime?
+  finalizadoEm   DateTime?
+  duracaoValida  Boolean           @default(false) // entra na media de duracao real
+  retornoSugerido DateTime?
+  canceladoEm    DateTime?
+  motivoCancelamento String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cliente      Cliente              @relation(fields: [clienteId], references: [id])
+  profissional Profissional         @relation(fields: [profissionalId], references: [id])
+  servicos     AgendamentoServico[]
+  produtos     AgendamentoProduto[]
+  pagamentos   Pagamento[]
+  reembolsos   Reembolso[]
+
+  @@index([tenantId, inicio])
+  @@index([tenantId, status])
+  @@index([profissionalId, inicio])
+  @@index([clienteId])
+}
+
+model AgendamentoServico {
+  id             String @id @default(cuid())
+  agendamentoId  String
+  servicoId      String
+  nome           String
+  preco          Int
+  duracaoMin     Int
+  intervaloMin   Int
+  ordem          Int    @default(0)
+  duracaoRealMin Int?
+
+  agendamento Agendamento @relation(fields: [agendamentoId], references: [id], onDelete: Cascade)
+  servico     Servico     @relation(fields: [servicoId], references: [id])
+
+  @@index([servicoId])
+}
+
+model AgendamentoProduto {
+  id            String  @id @default(cuid())
+  agendamentoId String
+  produtoId     String
+  nome          String
+  quantidade    Int     @default(1)
+  precoUnit     Int
+  adicionadoNoAtendimento Boolean @default(false)
+  estoqueBaixado Boolean @default(false)
+
+  agendamento Agendamento @relation(fields: [agendamentoId], references: [id], onDelete: Cascade)
+  produto     Produto     @relation(fields: [produtoId], references: [id])
+}
+
+model Pagamento {
+  id               String          @id @default(cuid())
+  tenantId         String
+  clienteId        String?
+  agendamentoId    String?
+  vendaId          String?
+  descricao        String?
+  origem           OrigemPagamento
+  modo             ModoPagamento
+  forma            FormaPagamento?
+  status           StatusPagamento @default(PENDENTE)
+  valorBruto       Int
+  taxaGateway      Int             @default(0)
+  valorLiquido     Int             @default(0)
+  valorReembolsado Int             @default(0)
+  gateway          String? // mercadopago | simulado
+  gatewayRef       String? // id da preferencia/pagamento no gateway
+  linkPagamento    String?
+  pixQrCode        String? // base64
+  pixCopiaCola     String?
+  pagoEm           DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cliente     Cliente?     @relation(fields: [clienteId], references: [id])
+  agendamento Agendamento? @relation(fields: [agendamentoId], references: [id])
+  venda       Venda?       @relation(fields: [vendaId], references: [id])
+  reembolsos  Reembolso[]
+
+  @@index([tenantId, createdAt])
+  @@index([gatewayRef])
+}
+
+model Reembolso {
+  id            String         @id @default(cuid())
+  tenantId      String
+  pagamentoId   String
+  agendamentoId String?
+  clienteId     String?
+  regra         RegraReembolso
+  percentual    Int
+  valor         Int
+  status        String         @default("EXECUTADO") // EXECUTADO | FALHOU
+  gatewayRef    String?
+  erro          String?
+  createdAt     DateTime       @default(now())
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  pagamento   Pagamento    @relation(fields: [pagamentoId], references: [id])
+  agendamento Agendamento? @relation(fields: [agendamentoId], references: [id])
+  cliente     Cliente?     @relation(fields: [clienteId], references: [id])
+
+  @@index([tenantId, createdAt])
+}
+
+model Venda {
+  id          String      @id @default(cuid())
+  tenantId    String
+  clienteId   String?
+  origem      OrigemVenda
+  status      StatusVenda @default(AGUARDANDO_PAGAMENTO)
+  valorTotal  Int
+  retirado    Boolean     @default(false)
+  retiradoEm  DateTime?
+  expiraEm    DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cliente    Cliente?    @relation(fields: [clienteId], references: [id])
+  itens      VendaItem[]
+  pagamentos Pagamento[]
+
+  @@index([tenantId, createdAt])
+}
+
+model VendaItem {
+  id         String @id @default(cuid())
+  vendaId    String
+  produtoId  String
+  nome       String
+  quantidade Int
+  precoUnit  Int
+
+  venda   Venda   @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  produto Produto @relation(fields: [produtoId], references: [id])
+}
+
+model Despesa {
+  id        String   @id @default(cuid())
+  tenantId  String
+  data      String // YYYY-MM-DD
+  categoria String
+  descricao String?
+  valor     Int
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, data])
+}
+
+model ComissaoPaga {
+  id             String   @id @default(cuid())
+  tenantId       String
+  profissionalId String
+  periodoInicio  String // YYYY-MM-DD
+  periodoFim     String // YYYY-MM-DD
+  valor          Int
+  pagoEm         DateTime @default(now())
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  profissional Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+
+  @@unique([profissionalId, periodoInicio, periodoFim])
+}
+
+model Recompensa {
+  id          String         @id @default(cuid())
+  tenantId    String
+  nome        String
+  tipo        TipoRecompensa
+  servicoId   String?
+  descontoPct Int            @default(0)
+  pontosCusto Int
+  ativo       Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  servico Servico? @relation(fields: [servicoId], references: [id], onDelete: SetNull)
+}
+
+model Cupom {
+  id        String    @id @default(cuid())
+  tenantId  String
+  codigo    String
+  tipo      TipoCupom
+  valor     Int // percentual (0-100) ou centavos
+  clienteId String?
+  validade  String? // YYYY-MM-DD
+  limiteUsos Int?
+  usos      Int       @default(0)
+  ativo     Boolean   @default(true)
+  createdAt DateTime  @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cliente Cliente? @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, codigo])
+}
+
+model MovimentoPontos {
+  id            String              @id @default(cuid())
+  tenantId      String
+  clienteId     String
+  tipo          TipoMovimentoPontos
+  pontos        Int // positivo para ganho, negativo para uso
+  descricao     String?
+  agendamentoId String?
+  createdAt     DateTime            @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  @@index([clienteId, createdAt])
+}
+
+model AgenteConfig {
+  id       String @id @default(cuid())
+  tenantId String @unique
+
+  // Conexao WhatsApp (um numero por estabelecimento; numeros autorizados sao roteados ao Agente de Gestao)
+  whatsappNumero   String?
+  whatsappProvider String  @default("uazapi") // uazapi | meta
+  whatsappConfig   Json    @default("{}") // { baseUrl, instanceToken, webhookSecret } | { accessToken, phoneNumberId, verifyToken }
+
+  // Agente de Atendimento
+  atendimentoAtivo       Boolean @default(true)
+  personaNome            String  @default("Assistente")
+  personaTom             String  @default("Cordial, objetivo e acolhedor")
+  personaApresentacao    String  @default("Ola! Sou o assistente virtual. Posso ajudar com seus agendamentos.")
+  informacoesNegocio     String  @default("")
+  mensagemEscalonamento  String  @default("Vou encaminhar seu atendimento para uma pessoa da nossa equipe. Em instantes alguem fala com voce.")
+  numeroEscalonamento    String?
+  tempoRetornoMin        Int     @default(15)
+
+  // Agente de Gestao
+  gestaoAtivo Boolean @default(true)
+
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model NumeroAutorizado {
+  id         String   @id @default(cuid())
+  tenantId   String
+  telefone   String
+  nome       String
+  // { "consultar": ["agenda","clientes",...], "alterar": ["agenda","servicos",...] }
+  permissoes Json     @default("{\"consultar\":[],\"alterar\":[]}")
+  ativo      Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, telefone])
+}
+
+model Conversa {
+  id                   String         @id @default(cuid())
+  tenantId             String
+  canal                CanalConversa  @default(ATENDIMENTO)
+  telefone             String
+  clienteId            String?
+  nomeContato          String?
+  status               StatusConversa @default(ATIVO)
+  pausadoAte           DateTime?
+  escalonamentoPendente Boolean       @default(false)
+  motivoEscalonamento  String?
+  escalonadoEm         DateTime?
+  ultimaMensagemEm     DateTime       @default(now())
+  createdAt            DateTime       @default(now())
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cliente   Cliente?   @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  mensagens Mensagem[]
+
+  @@unique([tenantId, telefone, canal])
+  @@index([tenantId, ultimaMensagemEm])
+}
+
+model Mensagem {
+  id         String        @id @default(cuid())
+  conversaId String
+  autor      AutorMensagem
+  texto      String
+  externalId String?
+  createdAt  DateTime      @default(now())
+
+  conversa Conversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+
+  @@index([conversaId, createdAt])
+  @@index([externalId])
+}
+
+model Automacao {
+  id         String        @id @default(cuid())
+  tenantId   String
+  tipo       TipoAutomacao
+  ativo      Boolean       @default(true)
+  // Momento do disparo em minutos. Significado depende do tipo
+  // (ex.: LEMBRETE_ATENDIMENTO = minutos antes; POS_ATENDIMENTO = minutos depois; AVISO_RETORNO = dias antes * 1440).
+  disparoMin Int           @default(0)
+  texto      String
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, tipo])
+}
+
+model AutomacaoEnvio {
+  id         String        @id @default(cuid())
+  tenantId   String
+  tipo       TipoAutomacao
+  referencia String // agendamentoId (ou agendamentoId:sufixo)
+  enviadoEm  DateTime      @default(now())
+  sucesso    Boolean       @default(true)
+  erro       String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tipo, referencia])
+}
+
+model CodigoVerificacao {
+  id        String   @id @default(cuid())
+  tenantId  String
+  telefone  String
+  codigo    String
+  finalidade String // CADASTRO | SENHA
+  expiraEm  DateTime
+  usado     Boolean  @default(false)
+  tentativas Int     @default(0)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, telefone])
+}

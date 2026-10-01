@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: smg-ag-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: smg_agendamentos
+      POSTGRES_USER: smg
+      POSTGRES_PASSWORD: smg123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smg -d smg_agendamentos"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: ./backend
+    container_name: smg-ag-backend
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      NODE_ENV: production
+      PORT: 3355
+      DATABASE_URL: postgresql://smg:smg123@postgres:5432/smg_agendamentos?schema=public
+    ports:
+      - "${SMG_AG_BACKEND_PORT:-3355}:3355"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+    container_name: smg-ag-frontend
+    restart: unless-stopped
+    ports:
+      - "${SMG_AG_FRONTEND_PORT:-8089}:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

@@ -1,0 +1,51 @@
+/* Aba Clientes */
+.cl-toolbar { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 14px; }
+.cl-search { position: relative; flex: 1; min-width: 240px; max-width: 420px; }
+.cl-search .input { padding-left: 34px; }
+.cl-search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--text-soft); pointer-events: none; }
+.cl-chip-count { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--gray-soft); color: var(--text-soft); }
+.chip.active .cl-chip-count { background: rgba(255, 255, 255, 0.25); color: #fff; }
+.cl-name { font-weight: 600; }
+.cl-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--primary-soft); color: var(--primary-strong); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+.cl-avatar-lg { width: 48px; height: 48px; font-size: 18px; }
+.cl-name-cell { display: flex; align-items: center; gap: 10px; }
+.cl-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.cl-late { color: var(--danger); font-weight: 600; }
+
+/* ficha (drawer mais largo) */
+.drawer:has(.cl-ficha) { width: min(720px, 100%); }
+.cl-ficha { display: flex; flex-direction: column; gap: 16px; }
+.cl-ficha-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.cl-ficha-head .cl-ficha-name { font-size: 18px; font-weight: 700; }
+.cl-indicadores { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.cl-ind { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--bg-muted); }
+.cl-ind-label { font-size: 11px; color: var(--text-soft); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.cl-ind-value { font-size: 16px; font-weight: 700; margin-top: 2px; }
+.cl-ind-value.cl-danger { color: var(--danger); }
+.cl-section { border-top: 1px solid var(--border); padding-top: 14px; }
+.cl-section-title { font-size: 13px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cl-hist-item { display: grid; grid-template-columns: 110px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.cl-hist-item:hover { background: var(--bg-accent); }
+.cl-hist-item:last-child { border-bottom: 0; }
+.cl-hist-date { font-family: var(--mono); font-size: 12px; }
+.cl-hist-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.cl-hist-list { border: 1px solid var(--border); border-radius: 10px; max-height: 360px; overflow-y: auto; }
+.cl-pontos-pos { color: var(--success); font-weight: 700; }
+.cl-pontos-neg { color: var(--danger); font-weight: 700; }
+.cl-readonly { white-space: pre-wrap; }
+
+/* mesclar */
+.cl-merge-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.cl-picker { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--bg-muted); min-width: 0; }
+.cl-picker-results { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; background: #fff; max-height: 220px; overflow-y: auto; }
+.cl-picker-selected { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--primary); border-radius: 10px; padding: 10px; }
+.cl-merge-table td:first-child { font-weight: 600; color: var(--text-soft); width: 130px; }
+.cl-option { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; padding: 4px 0; }
+.cl-option input { margin-top: 3px; accent-color: var(--primary); }
+.cl-option-empty { color: var(--text-soft); font-style: italic; }
+
+@media (max-width: 700px) {
+  .cl-merge-pick { grid-template-columns: 1fr; }
+  .cl-hist-item { grid-template-columns: 1fr; }
+  .cl-hist-right { align-items: flex-start; }
+}

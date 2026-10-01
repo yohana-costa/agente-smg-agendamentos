@@ -1,0 +1,94 @@
+/* Aba Atendimento (prefixo at-) */
+.at-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) 1fr;
+  gap: 0;
+  height: calc(100vh - 150px);
+  min-height: 540px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+/* ---- lista ---- */
+.at-sidebar { display: flex; flex-direction: column; border-right: 1px solid var(--border); min-height: 0; background: #fff; }
+.at-sidebar-head { padding: 12px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; background: var(--bg-muted); }
+.at-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.at-list { flex: 1; overflow-y: auto; min-height: 0; }
+.at-item { display: flex; gap: 10px; padding: 11px 12px; border-bottom: 1px solid var(--border); cursor: pointer; align-items: flex-start; }
+.at-item:hover { background: var(--bg-accent); }
+.at-item.active { background: var(--primary-soft); box-shadow: inset 3px 0 0 var(--primary); }
+.at-avatar {
+  width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
+  background: linear-gradient(135deg, #18453d, #007f64); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px;
+}
+.at-avatar.gestao { background: linear-gradient(135deg, #1e3a8a, #2563eb); }
+.at-item-main { flex: 1; min-width: 0; }
+.at-item-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.at-item-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-item-time { font-size: 11px; color: var(--text-soft); white-space: nowrap; }
+.at-item-preview { font-size: 12px; color: var(--text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.at-item-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
+.at-motivo { font-size: 11px; color: var(--amber); margin-top: 4px; line-height: 1.3; }
+
+/* ---- conversa ---- */
+.at-chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.at-chat-head { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: #fff; }
+.at-chat-title { font-weight: 700; font-size: 15px; }
+.at-chat-sub { font-size: 12px; color: var(--text-soft); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.at-chat-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.at-strip { padding: 8px 16px; border-bottom: 1px solid var(--border); font-size: 13px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.at-strip.pausa { background: var(--amber-soft); color: #78350f; }
+.at-strip.escalonado { background: var(--danger-soft); color: #7f1d1d; }
+.at-strip.agendamentos { background: var(--bg-muted); }
+.at-countdown { font-family: var(--mono); font-weight: 700; font-size: 14px; }
+.at-ag-link { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border-strong); background: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--text-main); }
+.at-ag-link:hover { border-color: var(--primary); text-decoration: none; }
+
+.at-messages {
+  flex: 1; overflow-y: auto; padding: 16px 18px; min-height: 0;
+  background-color: #efeae2;
+  background-image: radial-gradient(rgba(0, 0, 0, 0.035) 1px, transparent 1px);
+  background-size: 14px 14px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.at-msg-row { display: flex; }
+.at-msg-row.at-right { justify-content: flex-end; }
+.at-bubble {
+  max-width: min(72%, 560px); border-radius: 10px; padding: 6px 10px 4px; box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
+  background: #fff; position: relative; word-wrap: break-word; overflow-wrap: anywhere;
+}
+.at-left .at-bubble { border-top-left-radius: 2px; }
+.at-right .at-bubble { border-top-right-radius: 2px; }
+.at-bubble-author { font-size: 11px; font-weight: 700; margin-bottom: 2px; }
+.at-bubble-text { white-space: pre-wrap; font-size: 14px; }
+.at-bubble-time { font-size: 10px; color: var(--text-soft); text-align: right; margin-top: 2px; }
+.at-autor-CLIENTE { background: #fff; }
+.at-autor-CLIENTE .at-bubble-author { color: #475569; }
+.at-autor-AGENTE { background: #d9fdd3; }
+.at-autor-AGENTE .at-bubble-author { color: var(--primary-strong); }
+.at-autor-HUMANO { background: #dbeafe; }
+.at-autor-HUMANO .at-bubble-author { color: var(--info); }
+.at-autor-SISTEMA { background: #fef3c7; }
+.at-autor-SISTEMA .at-bubble-author { color: var(--amber); }
+.at-day { text-align: center; margin: 8px 0; }
+.at-day span { background: rgba(255, 255, 255, 0.9); border-radius: 8px; padding: 3px 10px; font-size: 11px; color: var(--text-soft); box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06); }
+.at-note { align-self: center; font-size: 12px; color: var(--text-soft); background: rgba(255, 255, 255, 0.85); border-radius: 8px; padding: 4px 10px; text-align: center; max-width: 80%; }
+
+.at-composer { border-top: 1px solid var(--border); padding: 10px 12px; background: var(--bg-muted); display: flex; flex-direction: column; gap: 6px; }
+.at-composer-row { display: flex; gap: 8px; align-items: flex-end; }
+.at-composer textarea { min-height: 44px; max-height: 160px; resize: vertical; }
+.at-composer-hint { font-size: 11px; color: var(--text-soft); }
+.at-empty-chat { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; color: var(--text-soft); gap: 6px; padding: 24px; text-align: center; background: var(--bg-muted); }
+.at-back { display: none; }
+
+@media (max-width: 900px) {
+  .at-layout { grid-template-columns: 1fr; height: calc(100vh - 140px); }
+  .at-layout.has-open .at-sidebar { display: none; }
+  .at-layout:not(.has-open) .at-chat { display: none; }
+  .at-back { display: inline-flex; }
+  .at-bubble { max-width: 88%; }
+}
