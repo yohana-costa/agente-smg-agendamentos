@@ -147,8 +147,21 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
         await escalar(conversa, ctx.escalonamento.motivo, { tenant, config, simulacao });
         return { escalonado: true, motivo: ctx.escalonamento.motivo, usedTools: r.usedTools };
       }
-      for (const parte of quebrarMensagem(r.text)) await enviarTexto(tenant.id, conversa.telefone, parte, enviarOpts);
-      return { texto: r.text, usedTools: r.usedTools };
+      // Documento de agentes 2.2: quem quer agendar recebe PRIMEIRO o link do site. O modelo nem
+      // sempre obedece, entao o sistema garante: se o cliente falou em agendar e o link ainda nao
+      // apareceu na conversa, ele vai junto desta resposta.
+      let texto = r.text;
+      const linkSite = `${env.publicAppUrl}/s/${tenant.slug}`;
+      if (!String(texto || "").includes(linkSite)) {
+        const ultimas = await prisma.mensagem.findMany({ where: { conversaId }, orderBy: { createdAt: "desc" }, take: 30, select: { autor: true, texto: true } });
+        const querAgendar = ultimas.some((m) => m.autor === "CLIENTE" && /agend|marcar|marca[cç]|hor[aá]rio|vaga/i.test(m.texto || ""));
+        const linkJaEnviado = ultimas.some((m) => m.autor !== "CLIENTE" && String(m.texto || "").includes(linkSite));
+        if (querAgendar && !linkJaEnviado) texto = `${texto}
+
+Se preferir, agende direto pelo site: ${linkSite}`;
+      }
+      for (const parte of quebrarMensagem(texto)) await enviarTexto(tenant.id, conversa.telefone, parte, enviarOpts);
+      return { texto, usedTools: r.usedTools };
     }
 
     // GESTAO

@@ -28,6 +28,10 @@ function buildSystemPrompt({ tenant, config, cliente }) {
     "## Informacoes do negocio (configuradas pelo estabelecimento)",
     config.informacoesNegocio?.trim() || "(nenhuma informacao adicional cadastrada)",
     tenant.endereco ? `Endereco: ${tenant.endereco}` : "",
+    "",
+    `## Link do site para agendar`,
+    `${env.publicAppUrl}/s/${tenant.slug}`,
+    "Sempre que o cliente quiser agendar (mesmo que o servico pedido nao exista e voce mostre os que existem), inclua este link na mesma resposta. Depois ofereca agendar pela conversa.",
   ].join("\n");
 }
 
@@ -53,6 +57,27 @@ function buildTools(ctx) {
     if (ctx.cliente) return ctx.cliente;
     ctx.cliente = await prisma.cliente.findUnique({ where: { tenantId_telefone: { tenantId, telefone } } });
     return ctx.cliente;
+  }
+
+  // O historico guarda so o texto das mensagens, nao o resultado das ferramentas: a partir da 2a
+  // mensagem o modelo costuma passar o NOME do servico/profissional em vez do id. Aceita os dois.
+  const semAcento = (v) => String(v || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  async function idsDeServicos(lista) {
+    const servicos = await prisma.servico.findMany({ where: { tenantId, ativo: true }, select: { id: true, nome: true } });
+    return (lista || []).map((v) => {
+      if (servicos.some((x) => x.id === v)) return v;
+      const alvo = semAcento(v);
+      const achado = servicos.find((x) => semAcento(x.nome) === alvo) || servicos.find((x) => semAcento(x.nome).includes(alvo) || alvo.includes(semAcento(x.nome)));
+      return achado ? achado.id : v;
+    });
+  }
+  async function idDeProfissional(v) {
+    if (!v) return v;
+    const profs = await prisma.profissional.findMany({ where: { tenantId, ativo: true }, select: { id: true, nome: true } });
+    if (profs.some((x) => x.id === v)) return v;
+    const alvo = semAcento(v);
+    const achado = profs.find((x) => semAcento(x.nome) === alvo) || profs.find((x) => semAcento(x.nome).startsWith(alvo));
+    return achado ? achado.id : v;
   }
 
   async function agendamentoDoCliente(id) {
@@ -107,11 +132,14 @@ function buildTools(ctx) {
       description:
         "Consulta horarios livres para um ou mais servicos (no mesmo atendimento). Sem data, retorna os proximos dias com horario. Considera jornada, folgas, bloqueios, Google Calendar, duracao total e intervalos.",
       schema: z.object({
-        servico_ids: z.array(z.string()).min(1).describe("Ids dos servicos escolhidos, na ordem"),
+        servico_ids: z.array(z.string()).min(1).describe("Ids (ou nomes exatos) dos servicos escolhidos, na ordem"),
         profissional_id: z.string().optional().describe("Id do profissional, se o cliente escolheu"),
         data: z.string().optional().describe("Data AAAA-MM-DD"),
       }),
-      handler: async ({ servico_ids, profissional_id, data }) => {
+      handler: async (entrada) => {
+        const servico_ids = await idsDeServicos(entrada.servico_ids);
+        const profissional_id = await idDeProfissional(entrada.profissional_id);
+        const { data } = entrada;
         if (data) {
           const r = await disponibilidade.listarHorarios({ tenantId, servicoIds: servico_ids, profissionalId: profissional_id, data });
           return {
@@ -143,7 +171,10 @@ function buildTools(ctx) {
         hora: z.string().describe("HH:mm"),
         nome_cliente: z.string().optional().describe("Nome do cliente, se ainda nao cadastrado"),
       }),
-      handler: async ({ servico_ids, profissional_id, data, hora, nome_cliente }) => {
+      handler: async (entrada) => {
+        const servico_ids = await idsDeServicos(entrada.servico_ids);
+        const profissional_id = await idDeProfissional(entrada.profissional_id);
+        const { data, hora, nome_cliente } = entrada;
         const cliente = await clienteAtual();
         if (!cliente && !nome_cliente) return { ok: false, error: "Pergunte o nome do cliente antes de agendar." };
         const ag = await agendamentoService.criar({
