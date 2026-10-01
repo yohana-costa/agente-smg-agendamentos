@@ -86,8 +86,17 @@ async function escalar(conversa, motivo, { tenant, config, simulacao = false }) 
 
 // ---------- processamento ----------
 
-function quebrarMensagem(texto) {
+// O WhatsApp nao entende markdown: [texto](url) aparece quebrado e **negrito** mostra os asteriscos.
+// Converte aqui, sem depender de o modelo obedecer a instrucao do prompt.
+function formatoWhatsApp(texto) {
   return String(texto || "")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_m, rotulo, url) => (rotulo.trim() === url ? url : `${rotulo.trim()}: ${url}`))
+    .replace(/\*\*([^*\n]+)\*\*/g, "*$1*")
+    .replace(/^#{1,6}\s+/gm, "");
+}
+
+function quebrarMensagem(texto) {
+  return formatoWhatsApp(texto)
     .split(/\n{2,}/)
     .map((p) => p.trim())
     .filter(Boolean)
