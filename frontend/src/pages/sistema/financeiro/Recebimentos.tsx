@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { Banknote, CreditCard, Percent, PiggyBank } from 'lucide-react'
 import { errorMessage, get, post } from '../../../lib/api'
 import { brl, dateTimeBr, ORIGEM, phone, todayStr } from '../../../lib/format'
 import { useAsync } from '../../../lib/hooks'
@@ -23,10 +24,10 @@ export default function Recebimentos({ periodo }: { periodo: Periodo }) {
     <div className="stack">
       <SuccessBanner message={msg} />
       <div className="stats-grid">
-        <Stat label="Valor bruto" value={brl(data?.totais.bruto)} hint={`${data?.recebimentos.length || 0} recebimento(s)`} />
-        <Stat label="Taxas do gateway" value={<span className="fi-neg">{brl(data?.totais.taxas)}</span>} />
-        <Stat label="Valor líquido" value={<span className="success-text">{brl(data?.totais.liquido)}</span>} />
-        <Stat label="Online x no local" value={brl(online)} hint={`${brl(local)} no local`} />
+        <Stat icon={Banknote} grad="indigo" label="Valor bruto" value={brl(data?.totais.bruto)} hint={`${data?.recebimentos.length || 0} recebimento(s)`} />
+        <Stat icon={Percent} grad="rose" label="Taxas do gateway" value={<span className="fi-neg">{brl(data?.totais.taxas)}</span>} />
+        <Stat icon={PiggyBank} grad="lime" label="Valor líquido" value={<span className="success-text">{brl(data?.totais.liquido)}</span>} />
+        <Stat icon={CreditCard} grad="sky" label="Online x no local" value={brl(online)} hint={`${brl(local)} no local`} />
       </div>
 
       <Card

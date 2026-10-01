@@ -5,10 +5,10 @@
 .fi-tipo { font-size: 11px; color: var(--text-soft); }
 .fi-neg { color: var(--danger); }
 .fi-dre { display: flex; flex-direction: column; }
-.fi-dre-row { display: flex; justify-content: space-between; align-items: center; padding: 11px 4px; border-bottom: 1px dashed var(--border); font-size: 14px; }
+.fi-dre-row { display: flex; justify-content: space-between; align-items: center; padding: 11px 4px; border-bottom: 1px dashed hsl(var(--border)); font-size: 14px; }
 .fi-dre-row .fi-dre-lbl { display: flex; align-items: center; gap: 8px; }
 .fi-dre-row .fi-dre-sign { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: var(--gray-soft); color: var(--text-soft); }
-.fi-dre-row.fi-pos .fi-dre-sign { background: var(--success-soft); color: var(--success); }
+.fi-dre-row.fi-pos .fi-dre-sign { background: var(--success-soft); color: hsl(var(--success)); }
 .fi-dre-row.fi-sub .fi-dre-sign { background: var(--danger-soft); color: var(--danger); }
 .fi-dre-total { display: flex; justify-content: space-between; align-items: center; padding: 14px 4px 4px; font-size: 18px; font-weight: 700; }
 .fi-dre-pct { font-size: 12px; color: var(--text-soft); margin-left: 8px; font-weight: 500; }

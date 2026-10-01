@@ -1,5 +1,5 @@
 // Seed de demonstracao: estabelecimento "Studio Demo" (slug demo).
-// Logins: dono@demo.com / recepcao@demo.com / ana@demo.com — senha 123456
+// Logins: SEED_DONO_EMAIL (padrao dono@demo.com) / recepcao@demo.com / ana@demo.com — senha SEED_SENHA (padrao 123456)
 const bcrypt = require("bcryptjs");
 const { PrismaClient } = require("@prisma/client");
 const { criarEstabelecimento } = require("../src/services/tenant.service");
@@ -11,12 +11,14 @@ async function main() {
   if (process.env.SEED_DEMO === "false") return console.log("[seed] SEED_DEMO=false, ignorado.");
   if (await prisma.tenant.findUnique({ where: { slug: "demo" } })) return console.log("[seed] demo ja existe.");
 
+  const SENHA = process.env.SEED_SENHA || "123456";
+  const DONO_EMAIL = (process.env.SEED_DONO_EMAIL || "dono@demo.com").toLowerCase();
   const tenant = await criarEstabelecimento({
     nomeEstabelecimento: "Studio Demo",
     slug: "demo",
     nome: "Carla Dona",
-    email: "dono@demo.com",
-    senha: "123456",
+    email: DONO_EMAIL,
+    senha: SENHA,
     telefone: "11999990000",
   });
   const tz = tenant.timezone;
@@ -39,7 +41,7 @@ async function main() {
   const carlaId = dono.profissionalId;
   await prisma.profissional.update({ where: { id: carlaId }, data: { cor: "#007f64", comissaoPct: 0, metaServicosMes: 70 } });
 
-  const senhaHash = await bcrypt.hash("123456", 10);
+  const senhaHash = await bcrypt.hash(SENHA, 10);
   const horarios = await prisma.horarioFuncionamento.findMany({ where: { tenantId: tenant.id } });
   const ana = await prisma.profissional.create({
     data: {
@@ -203,7 +205,7 @@ async function main() {
     data: { tenantId: tenant.id, telefone: "5511999990000", nome: "Carla (dona)", permissoes: { consultar: ["agenda", "clientes", "servicos", "produtos", "equipe", "financeiro", "desempenho"], alterar: ["agenda", "clientes", "servicos", "produtos", "financeiro"] } },
   });
 
-  console.log("[seed] Studio Demo criado. Login: dono@demo.com / 123456 — site: /s/demo");
+  console.log(`[seed] Studio Demo criado. Login: ${DONO_EMAIL} — site: /s/demo`);
 }
 
 main()

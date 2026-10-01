@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Gift, Star, TrendingUp } from 'lucide-react'
 import { errorMessage, get, post } from '../../../lib/api'
 import { dateTimeBr, phone } from '../../../lib/format'
 import { useAsync, useDebounced } from '../../../lib/hooks'
@@ -90,9 +91,9 @@ function ExtratoDrawer({ clienteId, onClose, onAjuste }: { clienteId: string; on
         <div className="stack">
           <div className="small muted">{phone(d.cliente.telefone)}</div>
           <div className="grid-3">
-            <Stat label="Ganhos" value={<span className="fd-pts-pos">{d.ganhos.toLocaleString('pt-BR')}</span>} />
-            <Stat label="Usados" value={<span className="fd-pts-neg">{d.usados.toLocaleString('pt-BR')}</span>} />
-            <Stat label="Saldo" value={d.saldo.toLocaleString('pt-BR')} />
+            <Stat icon={TrendingUp} grad="lime" label="Ganhos" value={<span className="fd-pts-pos">{d.ganhos.toLocaleString('pt-BR')}</span>} />
+            <Stat icon={Gift} grad="violet" label="Usados" value={<span className="fd-pts-neg">{d.usados.toLocaleString('pt-BR')}</span>} />
+            <Stat icon={Star} grad="amber" label="Saldo" value={d.saldo.toLocaleString('pt-BR')} />
           </div>
 
           <div className="card" style={{ background: 'var(--bg-muted)' }}>

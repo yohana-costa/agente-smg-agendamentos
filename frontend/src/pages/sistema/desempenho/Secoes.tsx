@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Banknote, CalendarClock, Clock, Gauge, Hourglass, Package, Repeat, ShoppingBag, TimerOff, TrendingUp, UserMinus, UserX, Users, XCircle } from 'lucide-react'
 import { brl, duration, MONTHS, ORIGEM, pct, WEEKDAYS_SHORT } from '../../../lib/format'
 import { BarList, Card, ColumnChart, Empty, Progress, Stat } from '../../../components/ui'
 import { brlCompacto, horas, type DesempenhoResp } from './types'
@@ -46,10 +47,10 @@ export function Capacidade({ d, mostrarPorProfissional }: { d: DesempenhoResp; m
         e foram feitos <strong>{c.servicosRealizados.toLocaleString('pt-BR')}</strong>.
       </div>
       <div className="stats-grid">
-        <Stat label="Taxa de ocupação" value={pct(c.taxaOcupacao)} hint={<Progress value={c.taxaOcupacao} />} />
-        <Stat label="Horas ocupadas" value={horas(c.horasOcupadas)} hint={`de ${horas(c.horasDisponiveis)} disponíveis`} />
-        <Stat label="Horas ociosas" value={horas(c.horasOciosas)} hint="Capacidade sem cliente" />
-        <Stat label="Horas perdidas com no-show" value={<span className={c.horasPerdidasNoShow ? 'de-bad' : ''}>{horas(c.horasPerdidasNoShow)}</span>} hint="Vendidas que viraram ociosidade" />
+        <Stat icon={Gauge} grad="sky" label="Taxa de ocupação" value={pct(c.taxaOcupacao)} hint={<Progress value={c.taxaOcupacao} />} />
+        <Stat icon={Clock} grad="indigo" label="Horas ocupadas" value={horas(c.horasOcupadas)} hint={`de ${horas(c.horasDisponiveis)} disponíveis`} />
+        <Stat icon={Hourglass} grad="teal" label="Horas ociosas" value={horas(c.horasOciosas)} hint="Capacidade sem cliente" />
+        <Stat icon={UserX} grad="rose" label="Horas perdidas com no-show" value={<span className={c.horasPerdidasNoShow ? 'de-bad' : ''}>{horas(c.horasPerdidasNoShow)}</span>} hint="Vendidas que viraram ociosidade" />
         <Stat
           label="Dias fechados fora da rotina"
           value={c.diasFechadosForaRotina}
@@ -109,9 +110,9 @@ export function Comparecimento({ d }: { d: DesempenhoResp }) {
   return (
     <Secao titulo="Comparecimento" sub={`${c.total} agendamento(s) válidos no período`}>
       <div className="stats-grid">
-        <Stat label="Taxa de no-show" value={<span className={c.taxaNoShow >= 10 ? 'de-bad' : ''}>{pct(c.taxaNoShow)}</span>} hint={`${c.noShows} no-show(s)`} />
-        <Stat label="Taxa de cancelamento" value={pct(c.taxaCancelamento)} hint={`${c.cancelamentos} cancelamento(s)`} />
-        <Stat label="Expirados sem pagamento" value={c.expiradosSemPagamento} hint="Reservas canceladas após 15 min sem pagamento" />
+        <Stat icon={UserX} grad="rose" label="Taxa de no-show" value={<span className={c.taxaNoShow >= 10 ? 'de-bad' : ''}>{pct(c.taxaNoShow)}</span>} hint={`${c.noShows} no-show(s)`} />
+        <Stat icon={XCircle} grad="amber" label="Taxa de cancelamento" value={pct(c.taxaCancelamento)} hint={`${c.cancelamentos} cancelamento(s)`} />
+        <Stat icon={TimerOff} grad="violet" label="Expirados sem pagamento" value={c.expiradosSemPagamento} hint="Reservas canceladas após 15 min sem pagamento" />
       </div>
     </Secao>
   )
@@ -125,10 +126,10 @@ export function Clientes({ d }: { d: DesempenhoResp }) {
     <Secao titulo="Clientes">
       <div className="grid-2">
         <div className="stats-grid" style={{ alignContent: 'start' }}>
-          <Stat label="Clientes atendidos" value={c.atendidos} />
-          <Stat label="Recorrência" value={pct(c.taxaRecorrencia)} hint={`${c.recorrentes} voltaram no período`} />
-          <Stat label="Retorno atrasado" value={<span className={c.retornoAtrasado ? 'de-bad' : ''}>{c.retornoAtrasado}</span>} hint="Passaram do retorno sugerido" />
-          <Stat label="Inativos" value={c.inativos} hint="Sem atendimento há muito tempo" />
+          <Stat icon={Users} grad="sky" label="Clientes atendidos" value={c.atendidos} />
+          <Stat icon={Repeat} grad="lime" label="Recorrência" value={pct(c.taxaRecorrencia)} hint={`${c.recorrentes} voltaram no período`} />
+          <Stat icon={CalendarClock} grad="amber" label="Retorno atrasado" value={<span className={c.retornoAtrasado ? 'de-bad' : ''}>{c.retornoAtrasado}</span>} hint="Passaram do retorno sugerido" />
+          <Stat icon={UserMinus} grad="rose" label="Inativos" value={c.inativos} hint="Sem atendimento há muito tempo" />
         </div>
         <Card title="Novos x recorrentes">
           {totalNR ? (
@@ -149,7 +150,7 @@ export function Clientes({ d }: { d: DesempenhoResp }) {
               </div>
               <div className="de-legend">
                 <span>
-                  <i style={{ background: 'var(--primary)' }} />
+                  <i style={{ background: 'hsl(var(--primary))' }} />
                   Novos {pct(pNovos)}
                 </span>
                 <span>
@@ -222,8 +223,8 @@ export function Produtos({ produtos }: { produtos: NonNullable<DesempenhoResp['p
     <Secao titulo="Produtos">
       <div className="grid-2">
         <div className="stats-grid" style={{ alignContent: 'start' }}>
-          <Stat label="Faturamento com produtos" value={brl(produtos.faturamento)} />
-          <Stat label="Unidades vendidas" value={qtd.toLocaleString('pt-BR')} hint="Site, balcão e atendimentos" />
+          <Stat icon={ShoppingBag} grad="indigo" label="Faturamento com produtos" value={brl(produtos.faturamento)} />
+          <Stat icon={Package} grad="teal" label="Unidades vendidas" value={qtd.toLocaleString('pt-BR')} hint="Site, balcão e atendimentos" />
         </div>
         <Card title="Mais vendidos">
           <BarList items={produtos.maisVendidos.slice(0, 8).map((p) => ({ key: p.produtoId, label: p.nome, value: p.quantidade }))} format={(v) => `${v} un.`} />
@@ -304,8 +305,8 @@ export function Receita({ d }: { d: DesempenhoResp }) {
   return (
     <Secao titulo="Receita">
       <div className="stats-grid">
-        <Stat label="Faturamento no período" value={brl(r.faturamento)} hint={`${r.atendimentos} atendimento(s) concluído(s)`} />
-        <Stat label="Ticket médio" value={brl(r.ticketMedio)} />
+        <Stat icon={Banknote} grad="indigo" label="Faturamento no período" value={brl(r.faturamento)} hint={`${r.atendimentos} atendimento(s) concluído(s)`} />
+        <Stat icon={TrendingUp} grad="violet" label="Ticket médio" value={brl(r.ticketMedio)} />
         <Stat
           label="Mês atual x anterior"
           value={variacao === null ? '—' : <span className={variacao >= 0 ? 'de-good' : 'de-bad'}>{`${variacao >= 0 ? '+' : ''}${pct(variacao)}`}</span>}
