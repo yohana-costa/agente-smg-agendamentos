@@ -157,6 +157,33 @@ function allTools(ctx) {
     {
       modulo: "agenda",
       acao: "alterar",
+      name: "iniciar_atendimento",
+      description: "Marca o atendimento como iniciado (botao Iniciar). So para agendamento confirmado.",
+      schema: z.object({ agendamento_id: z.string() }),
+      handler: async ({ agendamento_id }) => {
+        const a = await agendamentoService.iniciar(tenantId, agendamento_id);
+        return { ok: true, status: a.status };
+      },
+    },
+    {
+      modulo: "agenda",
+      acao: "alterar",
+      name: "finalizar_atendimento",
+      description:
+        "Finaliza o atendimento (botao Finalizar). Se houver valor em aberto (pagamento no local), informe a forma: DINHEIRO ou MAQUININHA. O retorno sugerido do servico e aceito automaticamente.",
+      schema: z.object({ agendamento_id: z.string(), forma_pagamento: z.enum(["DINHEIRO", "MAQUININHA"]).optional() }),
+      handler: async ({ agendamento_id, forma_pagamento }) => {
+        const previa = await agendamentoService.previaFinalizacao(tenantId, agendamento_id);
+        if (previa.valorEmAberto > 0 && !forma_pagamento) {
+          return { ok: false, error: `Ha ${brl(previa.valorEmAberto)} em aberto. Pergunte se foi pago em dinheiro ou maquininha.` };
+        }
+        const a = await agendamentoService.finalizar(tenantId, agendamento_id, { formaPagamento: forma_pagamento, retorno: { acao: "ACEITAR" } });
+        return { ok: true, status: a.status, retornoSugerido: a.retornoSugerido ? formatDateBr(a.retornoSugerido, tz) : null };
+      },
+    },
+    {
+      modulo: "agenda",
+      acao: "alterar",
       name: "bloquear_horario",
       description:
         "Bloqueia um periodo na agenda de um profissional. Se houver agendamentos afetados, retorna a lista; reenvie com 'decisoes' (CANCELAR ou REAGENDAR com data/hora) para cada um.",
@@ -409,6 +436,34 @@ function allTools(ctx) {
         return { ok: true, vendaId: r.venda.id, total: brl(r.venda.valorTotal) };
       },
     },
+    {
+      modulo: "produtos",
+      acao: "alterar",
+      name: "cadastrar_produto",
+      description: "Cadastra um produto novo. Valores em reais.",
+      schema: z.object({
+        nome: z.string().min(2),
+        preco_reais: z.number().positive(),
+        estoque: z.number().int().min(0).default(0),
+        custo_reais: z.number().min(0).optional(),
+        estoque_minimo: z.number().int().min(0).optional(),
+        descricao: z.string().optional(),
+      }),
+      handler: async (i) => {
+        const p = await prisma.produto.create({
+          data: {
+            tenantId,
+            nome: i.nome.trim(),
+            preco: reais(i.preco_reais),
+            estoque: i.estoque || 0,
+            custo: reais(i.custo_reais || 0),
+            estoqueMinimo: i.estoque_minimo || 0,
+            descricao: i.descricao || null,
+          },
+        });
+        return { ok: true, produtoId: p.id, nome: p.nome, preco: brl(p.preco), estoque: p.estoque };
+      },
+    },
     // ---------- equipe ----------
     {
       modulo: "equipe",
@@ -438,6 +493,22 @@ function allTools(ctx) {
           despesas: brl(r.despesas),
           resultado: brl(r.resultado),
           metaMes: { meta: brl(r.metaMes.meta), realizado: brl(r.metaMes.realizado), progresso: `${r.metaMes.progresso}%` },
+        };
+      },
+    },
+    {
+      modulo: "financeiro",
+      acao: "consultar",
+      name: "comissoes_profissionais",
+      description: "Valor a pagar a cada profissional no periodo (comissao ou valor fixo) e se ja foi pago. Padrao: mes atual.",
+      schema: z.object({ de: z.string().optional(), ate: z.string().optional() }),
+      handler: async ({ de, ate }) => {
+        const p = parsePeriod({ de, ate }, tz);
+        const lista = await metricas.comissoes({ tenantId, ...p });
+        return {
+          ok: true,
+          periodo: `${p.from} a ${p.to}`,
+          comissoes: lista.map((c) => ({ profissional: c.nome, servicos: c.servicosRealizados, valor: brl(c.valor), paga: c.paga })),
         };
       },
     },

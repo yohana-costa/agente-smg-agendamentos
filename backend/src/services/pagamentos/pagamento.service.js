@@ -7,6 +7,9 @@ const { log } = require("../../lib/helpers");
 // Cria cobranca online (status PENDENTE). O link aponta para o checkout SMG.
 async function criarPagamentoOnline(tx, { tenantId, clienteId, agendamentoId = null, vendaId = null, valor, origem, descricao }) {
   const db = tx || prisma;
+  // Sem Mercado Pago conectado nao ha como cobrar: barra aqui, dentro da transacao, para nao
+  // nascer agendamento "aguardando pagamento" que ninguem consegue pagar.
+  gateway.exigirConectado(await db.tenant.findUnique({ where: { id: tenantId } }));
   const pagamento = await db.pagamento.create({
     data: { tenantId, clienteId, agendamentoId, vendaId, valorBruto: valor, origem, modo: "ONLINE", status: "PENDENTE", descricao },
   });
@@ -129,6 +132,18 @@ async function processarWebhookMercadoPago({ tenantId, paymentId }) {
   return { ok: true, status: info.status };
 }
 
+// Cancela as cobrancas ainda nao pagas (no sistema e, no Pix, tambem no Mercado Pago).
+async function cancelarCobrancasPendentes({ tenant, agendamentoId = null, vendaId = null }) {
+  const pendentes = await prisma.pagamento.findMany({
+    where: { tenantId: tenant.id, status: "PENDENTE", ...(agendamentoId ? { agendamentoId } : { vendaId }) },
+  });
+  for (const p of pendentes) {
+    await gateway.cancelarCobranca(tenant, p);
+    await prisma.pagamento.update({ where: { id: p.id }, data: { status: "CANCELADO" } });
+  }
+  return pendentes.length;
+}
+
 // Executa reembolso (automatico) de um pagamento aprovado.
 async function reembolsar({ pagamento, tenant, valor, regra, percentual, agendamentoId }) {
   const disponivel = pagamento.valorBruto - pagamento.valorReembolsado;
@@ -188,4 +203,5 @@ module.exports = {
   aprovarPagamento,
   processarWebhookMercadoPago,
   reembolsar,
+  cancelarCobrancasPendentes,
 };

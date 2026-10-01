@@ -117,6 +117,7 @@ async function criar(input) {
     encaixe = false,
     cupomCodigo,
     recompensaId,
+    ignorarAgendamentoId = null,
   } = input;
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant) throw notFound("Estabelecimento nao encontrado.");
@@ -134,7 +135,7 @@ async function criar(input) {
 
   if (origem !== "MANUAL") {
     if (inicio.getTime() < Date.now()) throw badRequest("Horário no passado.");
-    const valido = await disponibilidade.validarHorarioOferecido({ tenantId, servicos, profissionalId, inicio });
+    const valido = await disponibilidade.validarHorarioOferecido({ tenantId, servicos, profissionalId, inicio, excluirAgendamentoId: ignorarAgendamentoId || undefined });
     if (!valido) throw conflict("Este horário não está mais disponível. Escolha outro horário.");
   } else {
     const conflitos = await disponibilidade.verificarConflitos({ tenantId, profissionalId, inicio, fimIntervalo: horarios.fimIntervalo });
@@ -160,7 +161,7 @@ async function criar(input) {
     async (tx) => {
       await lockProfissional(tx, profissionalId);
       if (!encaixe) {
-        const choques = await sobreposicoes(tx, { tenantId, profissionalId, inicio: horarios.inicio, fimIntervalo: horarios.fimIntervalo });
+        const choques = await sobreposicoes(tx, { tenantId, profissionalId, inicio: horarios.inicio, fimIntervalo: horarios.fimIntervalo, excluirId: ignorarAgendamentoId });
         if (choques.length) throw conflict("Este horário acabou de ser ocupado. Escolha outro horário.");
       }
 
@@ -286,6 +287,18 @@ async function confirmarPorPagamento(agendamentoId) {
     await baixarEstoqueAgendamento(ag.id);
     await dispararAutomacao("CONFIRMACAO", ag.id);
     notificarAgenda(ag.tenantId, ag.id, "confirmado");
+    return;
+  }
+
+  // Pagamento que chegou para um agendamento ja cancelado pelo estabelecimento ou pelo cliente
+  // (o Pix continuava valido no Mercado Pago): nao ha horario para confirmar, devolve tudo.
+  if (["CANCELADO", "NO_SHOW"].includes(ag.status) && !ag.expirado) {
+    const tenant = await prisma.tenant.findUnique({ where: { id: ag.tenantId } });
+    const pagos = await prisma.pagamento.findMany({ where: { agendamentoId: ag.id, status: "APROVADO", pagoEm: { gte: ag.canceladoEm || new Date(0) } } });
+    for (const p of pagos) {
+      await pagamentos.reembolsar({ pagamento: p, tenant, valor: p.valorBruto, regra: "ESTABELECIMENTO", percentual: 100, agendamentoId: ag.id });
+    }
+    log("agenda", "pagamento_apos_cancelamento_reembolsado", { agendamentoId: ag.id, pagamentos: pagos.length });
     return;
   }
 
@@ -479,13 +492,14 @@ async function cancelar(tenantId, id, { tipo = "CANCELAMENTO", porEstabeleciment
   if (tipo === "NO_SHOW" && ag.status !== "CONFIRMADO") throw badRequest("No-show so pode ser registrado em agendamento confirmado.");
 
   const calculo = politica.calcularReembolso({ agendamento: ag, pagamentos: ag.pagamentos, tenant, tipo, porEstabelecimento });
-  const novoStatus = tipo === "NO_SHOW" ? "NO_SHOW" : "CANCELADO";
+  // Escopo 4.4: cancelar depois do horario marcado conta como no-show (regra E status).
+  const novoStatus = tipo === "NO_SHOW" || (calculo.regra === "NO_SHOW" && ag.status === "CONFIRMADO") ? "NO_SHOW" : "CANCELADO";
 
   await prisma.agendamento.update({
     where: { id },
     data: { status: novoStatus, canceladoEm: new Date(), motivoCancelamento: textOrNull(motivo) },
   });
-  await prisma.pagamento.updateMany({ where: { agendamentoId: id, status: "PENDENTE" }, data: { status: "CANCELADO" } });
+  await pagamentos.cancelarCobrancasPendentes({ tenant, agendamentoId: id });
 
   // reembolso automatico distribuido entre os pagamentos aprovados
   let restante = calculo.valor;
@@ -570,8 +584,8 @@ async function reagendar(tenantId, id, input) {
 
     const simulacao = await simularReagendamento(tenantId, id, { porCliente: true });
     if (simulacao.exigeNovoPagamento) {
-      // aplica regra fora do prazo e cria novo agendamento com novo pagamento
-      await cancelar(tenantId, id, { tipo: "CANCELAMENTO", motivo: "Reagendado pelo cliente fora do prazo", notificar: false });
+      // Cria o novo horario ANTES de cancelar o antigo: se o horario for tomado nesse meio
+      // tempo, o cliente continua com o agendamento original e nada e devolvido a toa.
       const novo = await criar({
         tenantId,
         origem: input.origem || "SITE",
@@ -581,7 +595,10 @@ async function reagendar(tenantId, id, input) {
         inicio: inicio.toISOString(),
         produtos: ag.produtos.filter((p) => !p.adicionadoNoAtendimento).map((p) => ({ produtoId: p.produtoId, quantidade: p.quantidade })),
         observacoes: ag.observacoes,
+        ignorarAgendamentoId: id,
       });
+      // aplica a regra de cancelamento fora do prazo no agendamento antigo
+      await cancelar(tenantId, id, { tipo: "CANCELAMENTO", motivo: "Reagendado pelo cliente fora do prazo", notificar: false });
       return { agendamento: novo, novoAgendamento: true, reembolso: simulacao.reembolso };
     }
   } else {

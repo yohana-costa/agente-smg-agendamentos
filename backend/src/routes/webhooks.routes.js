@@ -61,6 +61,7 @@ router.post("/whatsapp/:slug/:provider", async (req, res) => {
       payload: req.body,
       headers: req.headers,
       query: req.query,
+      rawBody: req.rawBody || null,
     });
     return res.status(200).json({ success: true, data: resultados });
   } catch (error) {

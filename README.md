@@ -54,7 +54,7 @@ npm install
 npm run dev                   # http://localhost:5176 (proxy /api -> 3355)
 ```
 
-Logins do demo (senha `123456`): `dono@demo.com`, `recepcao@demo.com`, `ana@demo.com` (profissional).
+Logins do demo (senha `123456` em desenvolvimento; em produção o seed só roda com `SEED_SENHA` definida): `dono@demo.com`, `recepcao@demo.com`, `ana@demo.com` (profissional).
 Site público: http://localhost:5176/s/demo · Portal: http://localhost:5176/s/demo/portal
 
 Teste de fumaça (com a API rodando e o seed recém-criado): `npm run test:e2e` no backend.
@@ -70,8 +70,8 @@ docker compose up -d --build   # frontend em :8089, API em :3355
 
 | Integração | Como configurar | Sem configuração |
 |---|---|---|
-| Mercado Pago | `MP_ACCESS_TOKEN` (global) ou token por estabelecimento em Configurações > Pagamentos. Webhook: `{PUBLIC_API_URL}/api/webhooks/mercadopago?tenant=<id>` | Modo **simulado**: o checkout mostra botões "Simular pagamento" |
-| WhatsApp | Aba Agentes de IA > Conexão (Uazapi: baseUrl + instanceToken; Meta: accessToken + phoneNumberId). Webhook: `{PUBLIC_API_URL}/api/webhooks/whatsapp/<slug>/<uazapi\|meta>` | Mensagens ficam registradas nas conversas, sem envio. `WHATSAPP_DRY_RUN=true` força isso |
+| Mercado Pago | Botão **Conectar Mercado Pago** em Configurações > Pagamentos (OAuth, mesmo app do Gestor SMG varejo): `MP_CLIENT_ID`, `MP_CLIENT_SECRET` e o redirect `{PUBLIC_API_URL}/api/integracoes/mercadopago/callback` cadastrado no app. Comissão da SMG: `MP_TAXA_PLATAFORMA_PCT` | Produção: pagamento online indisponível até conectar. Desenvolvimento: modo **simulado** (botões "Simular pagamento"); `PAGAMENTO_SIMULADO` força ligado/desligado |
+| WhatsApp | Aba Agentes de IA > Conexão (Uazapi: baseUrl + instanceToken; Meta: accessToken + phoneNumberId, App Secret opcional). Webhook: a URL mostrada na tela, **com o `?token=` no final** (sem ele o webhook recusa) | Mensagens ficam registradas nas conversas, sem envio. `WHATSAPP_DRY_RUN=true` força isso. Áudios recebidos são transcritos (`OPENAI_TRANSCRIBE_MODEL`) |
 | IA (agentes) | `OPENAI_API_KEY` (modelo padrão `gpt-4o-mini`, igual ao SMG varejo) | Agentes indisponíveis (aviso na aba Agentes de IA) |
 | Google Calendar | `GOOGLE_CLIENT_ID/SECRET`, redirect `{PUBLIC_API_URL}/api/integracoes/google/callback` | Integração oculta |
 

@@ -5,6 +5,7 @@ const bcrypt = require("bcryptjs");
 const prisma = require("../lib/prisma");
 const env = require("../config/env");
 const gateway = require("../services/pagamentos/gateway");
+const mpOauth = require("../services/pagamentos/mercadopago-oauth.service");
 const google = require("../services/google-calendar.service");
 const { ABAS, PERMISSOES_PADRAO, resolvePermissoes } = require("../middleware/auth");
 const { slugify } = require("../services/tenant.service");
@@ -15,8 +16,19 @@ const { isTimeStr } = require("../lib/time");
 const router = express.Router();
 
 function semSegredos(tenant) {
-  const { mpAccessToken, ...resto } = tenant;
+  const { mpAccessToken, mpRefreshToken, ...resto } = tenant;
   return { ...resto, mpAccessTokenConfigurado: Boolean(mpAccessToken) };
+}
+
+function dadosPagamento(tenant) {
+  return {
+    modo: gateway.modo(tenant),
+    conectado: Boolean(tenant.mpAccessToken),
+    // conectado pelo botao (OAuth) ou por token colado antes desta versao
+    viaOauth: Boolean(tenant.mpRefreshToken),
+    contaId: tenant.mpUserId || null,
+    oauthDisponivel: mpOauth.configurado(),
+  };
 }
 
 router.get(
@@ -34,12 +46,7 @@ router.get(
       },
       agenda: { toleranciaPendenteMin: tenant.toleranciaPendenteMin, intervaloSlotsMin: tenant.intervaloSlotsMin },
       metas: { metaServicosMes: tenant.metaServicosMes, metaValorMes: tenant.metaValorMes },
-      pagamentos: {
-        modo: gateway.modo(tenant),
-        mpAccessTokenConfigurado: Boolean(tenant.mpAccessToken),
-        mpPublicKey: tenant.mpPublicKey,
-        webhookUrl: `${env.publicApiUrl}/api/webhooks/mercadopago?tenant=${tenant.id}`,
-      },
+      pagamentos: dadosPagamento(tenant),
       site: {
         url: `${env.publicAppUrl}/s/${tenant.slug}`,
         siteTitulo: tenant.siteTitulo,
@@ -122,15 +129,19 @@ router.patch(
   })
 );
 
-router.patch(
-  "/pagamentos",
+// "Conectar Mercado Pago" (OAuth, igual ao Gestor SMG varejo): o dono autoriza a propria conta
+// no site do Mercado Pago e volta para Configuracoes > Pagamentos. Nao se cola token na mao.
+router.get(
+  "/pagamentos/conectar",
+  asyncHandler(async (req, res) => ok(res, mpOauth.iniciarConexao(req.auth.tenantId)))
+);
+
+router.post(
+  "/pagamentos/desconectar",
   asyncHandler(async (req, res) => {
-    const b = req.body || {};
-    const data = {};
-    if (b.mpAccessToken !== undefined) data.mpAccessToken = textOrNull(b.mpAccessToken);
-    if (b.mpPublicKey !== undefined) data.mpPublicKey = textOrNull(b.mpPublicKey);
-    const t = await prisma.tenant.update({ where: { id: req.auth.tenantId }, data });
-    return ok(res, { modo: gateway.modo(t), mpAccessTokenConfigurado: Boolean(t.mpAccessToken) });
+    await mpOauth.desconectar(req.auth.tenantId);
+    const t = await prisma.tenant.findUnique({ where: { id: req.auth.tenantId } });
+    return ok(res, dadosPagamento(t));
   })
 );
 

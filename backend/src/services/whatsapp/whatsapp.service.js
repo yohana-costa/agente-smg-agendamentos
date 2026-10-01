@@ -5,7 +5,16 @@ const { normalizePhone, textOrEmpty, log } = require("../../lib/helpers");
 const { sendUazapiText, sendMetaText } = require("./providers");
 
 async function getAgenteConfig(tenantId) {
-  return prisma.agenteConfig.upsert({ where: { tenantId }, update: {}, create: { tenantId } });
+  const config = await prisma.agenteConfig.upsert({ where: { tenantId }, update: {}, create: { tenantId } });
+  if (config.webhookToken) return config;
+  // gerado uma vez por estabelecimento; vai na URL do webhook mostrada na aba Agentes de IA
+  return prisma.agenteConfig.update({ where: { id: config.id }, data: { webhookToken: require("crypto").randomBytes(18).toString("hex") } });
+}
+
+function webhookUrls(tenant, config) {
+  const base = `${env.publicApiUrl}/api/webhooks/whatsapp/${tenant.slug}`;
+  const q = `?token=${encodeURIComponent(config.webhookToken || "")}`;
+  return { uazapi: `${base}/uazapi${q}`, meta: `${base}/meta${q}` };
 }
 
 function conexaoConfigurada(config) {
@@ -76,4 +85,4 @@ async function enviarTexto(tenantId, telefone, texto, { autor = "SISTEMA", canal
   return resultado;
 }
 
-module.exports = { getAgenteConfig, conexaoConfigurada, obterConversa, registrarMensagem, enviarTexto };
+module.exports = { webhookUrls, getAgenteConfig, conexaoConfigurada, obterConversa, registrarMensagem, enviarTexto };

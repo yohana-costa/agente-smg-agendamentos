@@ -17,6 +17,7 @@ const CAMPOS: Record<Provider, Campo[]> = {
     { key: 'accessToken', label: 'Access token (permanente)', secreto: true },
     { key: 'phoneNumberId', label: 'Phone number ID', secreto: false, placeholder: 'Ex.: 109876543210987' },
     { key: 'verifyToken', label: 'Verify token do webhook', secreto: false, hint: 'Defina um texto qualquer e use o mesmo valor ao cadastrar o webhook no painel da Meta.' },
+    { key: 'appSecret', label: 'App secret (opcional)', secreto: true, hint: 'Com ele o sistema também confere a assinatura de cada mensagem enviada pela Meta.' },
   ],
 }
 
@@ -153,7 +154,7 @@ export function ConexaoWhatsApp({
         </div>
 
         <div className="ia-side">
-          <Card title="URL do webhook" subtitle={provider === 'meta' ? 'Cadastre no painel da Meta (WhatsApp > Configuração > Webhook) junto com o verify token.' : 'Cadastre na sua instância Uazapi para receber as mensagens.'}>
+          <Card title="URL do webhook" subtitle={provider === 'meta' ? 'Cadastre no painel da Meta (WhatsApp > Configuração > Webhook) junto com o verify token.' : 'Cadastre na sua instância Uazapi para receber as mensagens. Use a URL inteira: o token no final é o que protege o webhook.'}>
             <div className="stack">
               <CopyField value={webhook} />
               <details>

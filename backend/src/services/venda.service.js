@@ -36,6 +36,7 @@ async function baixarEstoque(vendaId) {
 async function criarVenda({ tenantId, origem, itens, cliente, clienteId, forma }) {
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant.venderProdutos) throw badRequest("A venda de produtos esta desativada.");
+  if (origem === "SITE" || forma === "PIX") require("./pagamentos/gateway").exigirConectado(tenant);
   const validados = await validarItens(tenantId, itens);
   const valorTotal = validados.reduce((acc, i) => acc + i.produto.preco * i.quantidade, 0);
 

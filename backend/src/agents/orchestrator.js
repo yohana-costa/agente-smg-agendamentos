@@ -11,6 +11,7 @@ const { normalizePhone, log } = require("../lib/helpers");
 const { addMinutes } = require("../lib/time");
 const { getAgenteConfig, obterConversa, registrarMensagem, enviarTexto } = require("../services/whatsapp/whatsapp.service");
 const { parseUazapi, parseMeta } = require("../services/whatsapp/providers");
+const { textoDaMidia } = require("../services/whatsapp/midia.service");
 const atendimentoAgent = require("./atendimento/agent");
 const gestaoAgent = require("./gestao/agent");
 
@@ -206,10 +207,12 @@ async function processarEvento(tenant, config, evento) {
     return { pausado: true };
   }
 
-  if (!evento.text) return { ignorado: "sem_texto" };
   if (evento.messageId && (await prisma.mensagem.findFirst({ where: { externalId: evento.messageId, conversaId: conversa.id } }))) {
     return { ignorado: "duplicado" };
   }
+  // audio e imagem viram texto para o agente (audio transcrito); antes eram ignorados
+  if (evento.media) evento.text = await textoDaMidia(config, evento);
+  if (!evento.text) return { ignorado: "sem_texto" };
   if (evento.profileName && !conversa.nomeContato) {
     await prisma.conversa.update({ where: { id: conversa.id }, data: { nomeContato: evento.profileName } });
   }
@@ -218,14 +221,33 @@ async function processarEvento(tenant, config, evento) {
   return { conversaId: conversa.id, canal };
 }
 
-async function processarWebhook({ tenantSlug, provider, payload, headers = {}, query = {} }) {
+// Aceita o token da URL (?token=, gerado por estabelecimento), o segredo da Uazapi no header
+// ou a assinatura X-Hub-Signature-256 da Meta (quando o App Secret foi informado).
+function webhookAutorizado({ provider, config, headers, query, rawBody }) {
+  const iguais = (a, b) => {
+    const x = Buffer.from(String(a || ""));
+    const y = Buffer.from(String(b || ""));
+    return x.length > 0 && x.length === y.length && require("crypto").timingSafeEqual(x, y);
+  };
+  if (config.webhookToken && iguais(query.token, config.webhookToken)) return true;
+  const wc = config.whatsappConfig || {};
+  if (provider === "uazapi" && wc.webhookSecret) {
+    if (iguais(headers["x-webhook-secret"] || headers["x-uazapi-secret"] || query.secret, wc.webhookSecret)) return true;
+  }
+  if (provider === "meta" && wc.appSecret && rawBody) {
+    const assinatura = String(headers["x-hub-signature-256"] || "").replace(/^sha256=/, "");
+    const esperada = require("crypto").createHmac("sha256", wc.appSecret).update(rawBody).digest("hex");
+    if (iguais(assinatura, esperada)) return true;
+  }
+  return false;
+}
+
+async function processarWebhook({ tenantSlug, provider, payload, headers = {}, query = {}, rawBody = null }) {
   const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug } });
   if (!tenant) throw Object.assign(new Error("Estabelecimento nao encontrado."), { statusCode: 404 });
   const config = await getAgenteConfig(tenant.id);
-  const secret = config.whatsappConfig?.webhookSecret;
-  if (provider === "uazapi" && secret) {
-    const recebido = headers["x-webhook-secret"] || headers["x-uazapi-secret"] || query.secret;
-    if (recebido !== secret) throw Object.assign(new Error("Webhook nao autorizado."), { statusCode: 401 });
+  if (!webhookAutorizado({ provider, config, headers, query, rawBody })) {
+    throw Object.assign(new Error("Webhook nao autorizado."), { statusCode: 401 });
   }
   const eventos = provider === "meta" ? parseMeta(payload) : parseUazapi(payload);
   const resultados = [];

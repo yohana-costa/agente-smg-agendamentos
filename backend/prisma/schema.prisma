@@ -172,6 +172,10 @@ model Tenant {
   // Pagamentos (gateway SMG -> Mercado Pago)
   mpAccessToken String?
   mpPublicKey   String?
+  // OAuth "Conectar Mercado Pago": renovacao automatica do token da conta do estabelecimento
+  mpRefreshToken  String?
+  mpUserId        String?
+  mpTokenExpiraEm DateTime?
 
   // Permissoes por perfil (Configuracoes > Usuarios e permissoes)
   permissoesPerfis Json @default("{}")
@@ -685,7 +689,10 @@ model AgenteConfig {
   // Conexao WhatsApp (um numero por estabelecimento; numeros autorizados sao roteados ao Agente de Gestao)
   whatsappNumero   String?
   whatsappProvider String  @default("uazapi") // uazapi | meta
-  whatsappConfig   Json    @default("{}") // { baseUrl, instanceToken, webhookSecret } | { accessToken, phoneNumberId, verifyToken }
+  whatsappConfig   Json    @default("{}") // { baseUrl, instanceToken, webhookSecret } | { accessToken, phoneNumberId, verifyToken, appSecret }
+  // Token obrigatorio na URL do webhook (?token=): sem ele qualquer um poderia simular mensagens
+  // e fazer o agente responder numeros aleatorios gastando WhatsApp e OpenAI do estabelecimento.
+  webhookToken     String?
 
   // Agente de Atendimento
   atendimentoAtivo       Boolean @default(true)

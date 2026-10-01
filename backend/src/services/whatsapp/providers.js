@@ -64,7 +64,10 @@ function parseUazapi(payload) {
   const message = body?.message || {};
   const chat = body?.chat || {};
   if (!eventType || !message) return [];
-  const text = [message.text, message.content, message.caption, body.text].map(textOrEmpty).find(Boolean) || "";
+  const tipoMidia = String(message.messageType || message.mediaType || message.type || "").toLowerCase();
+  const media = /audio|ptt|voice/.test(tipoMidia) ? "AUDIO" : /image/.test(tipoMidia) ? "IMAGEM" : null;
+  // em midia o "content" costuma vir como objeto/URL criptografada: so legenda conta como texto
+  const text = (media ? [message.caption, message.text] : [message.text, message.content, message.caption, body.text]).map(textOrEmpty).find(Boolean) || "";
   const fromMe = Boolean(message.fromMe);
   const contato = normalizePhone(
     fromMe ? message.chatid || chat.wa_chatid || chat.phone : message.sender_pn || message.chatid || message.sender || chat.wa_chatid || chat.phone
@@ -78,6 +81,7 @@ function parseUazapi(payload) {
       fromMe,
       isGroup: Boolean(message.isGroup || chat.wa_isGroup),
       text,
+      media: media ? { tipo: media, id: String(message.messageid || message.id || "").trim() } : null,
       profileName: textOrEmpty(message.senderName || chat.name || chat.wa_name),
     },
   ];
@@ -94,6 +98,13 @@ function parseMeta(payload) {
           [message?.text?.body, message?.button?.text, message?.interactive?.button_reply?.title, message?.interactive?.list_reply?.title, message?.image?.caption]
             .map(textOrEmpty)
             .find(Boolean) || "";
+        const tipo = String(message?.type || "");
+        const media =
+          tipo === "audio" || tipo === "voice"
+            ? { tipo: "AUDIO", id: String(message?.audio?.id || message?.voice?.id || "") }
+            : tipo === "image"
+              ? { tipo: "IMAGEM", id: String(message?.image?.id || "") }
+              : null;
         events.push({
           provider: "meta",
           eventType: "messages",
@@ -102,6 +113,7 @@ function parseMeta(payload) {
           fromMe: false,
           isGroup: false,
           text,
+          media,
           profileName: textOrEmpty(contacts?.[0]?.profile?.name),
         });
       }
@@ -123,4 +135,35 @@ function parseMeta(payload) {
   return events;
 }
 
-module.exports = { sendUazapiText, sendMetaText, parseUazapi, parseMeta };
+// ---------- download de midia recebida ----------
+
+// Uazapi: POST /message/download devolve o arquivo em base64 (audio ja convertido para mp3).
+async function downloadUazapiMedia(config, messageId) {
+  const cfg = uazapiConfig(config);
+  const r = await axios.post(
+    `${cfg.baseUrl}/message/download`,
+    { id: messageId, return_base64: true, generate_mp3: true },
+    { timeout: 60000, headers: { "Content-Type": "application/json", token: cfg.instanceToken }, validateStatus: () => true }
+  );
+  const b64 = r.data?.base64Data || r.data?.base64 || r.data?.data;
+  if (r.status >= 200 && r.status < 300 && typeof b64 === "string" && b64) {
+    const limpo = b64.includes(",") ? b64.split(",").pop() : b64;
+    return { buffer: Buffer.from(limpo, "base64"), mimeType: r.data?.mimetype || r.data?.mimeType || "audio/mpeg" };
+  }
+  if (r.data?.fileURL) {
+    const bin = await axios.get(r.data.fileURL, { responseType: "arraybuffer", timeout: 60000 });
+    return { buffer: Buffer.from(bin.data), mimeType: bin.headers["content-type"] || "audio/mpeg" };
+  }
+  throw createAppError(`Uazapi nao devolveu a midia (status ${r.status}).`, 502);
+}
+
+// Meta: GET /{media-id} devolve uma URL temporaria, baixada com o mesmo token.
+async function downloadMetaMedia(config, mediaId) {
+  const cfg = metaConfig(config);
+  const headers = { Authorization: `Bearer ${cfg.accessToken}` };
+  const meta = await axios.get(`${cfg.graphBaseUrl}/${encodeURIComponent(mediaId)}`, { headers, timeout: 30000 });
+  const bin = await axios.get(meta.data.url, { headers, responseType: "arraybuffer", timeout: 60000 });
+  return { buffer: Buffer.from(bin.data), mimeType: meta.data.mime_type || bin.headers["content-type"] || "audio/ogg" };
+}
+
+module.exports = { sendUazapiText, sendMetaText, parseUazapi, parseMeta, downloadUazapiMedia, downloadMetaMedia };

@@ -4,7 +4,7 @@ const prisma = require("../lib/prisma");
 const env = require("../config/env");
 const orchestrator = require("../agents/orchestrator");
 const { MODULOS } = require("../agents/gestao/agent");
-const { getAgenteConfig, conexaoConfigurada } = require("../services/whatsapp/whatsapp.service");
+const { getAgenteConfig, conexaoConfigurada, webhookUrls } = require("../services/whatsapp/whatsapp.service");
 const { requireDono } = require("../middleware/auth");
 const { badRequest, notFound, conflict } = require("../lib/errors");
 const { asyncHandler, ok, requireText, textOrEmpty, toInt, toBool, requirePhone, normalizePhone } = require("../lib/helpers");
@@ -12,8 +12,9 @@ const { asyncHandler, ok, requireText, textOrEmpty, toInt, toBool, requirePhone,
 const router = express.Router();
 
 function mascarar(config) {
-  const c = { ...(config.whatsappConfig || {}) };
-  for (const k of ["instanceToken", "accessToken", "webhookSecret"]) {
+  const { webhookToken, ...resto } = config;
+  const c = { ...(resto.whatsappConfig || {}) };
+  for (const k of ["instanceToken", "accessToken", "webhookSecret", "appSecret"]) {
     if (c[k]) c[k] = `${String(c[k]).slice(0, 4)}••••`;
   }
   return c;
@@ -26,13 +27,10 @@ router.get(
     const config = await getAgenteConfig(tenantId);
     const numeros = await prisma.numeroAutorizado.findMany({ where: { tenantId }, orderBy: { nome: "asc" } });
     return ok(res, {
-      config: { ...config, whatsappConfig: mascarar(config) },
+      config: { ...config, webhookToken: undefined, whatsappConfig: mascarar(config) },
       whatsappConectado: conexaoConfigurada(config),
       iaDisponivel: Boolean(env.openaiApiKey),
-      webhook: {
-        uazapi: `${env.publicApiUrl}/api/webhooks/whatsapp/${tenant.slug}/uazapi`,
-        meta: `${env.publicApiUrl}/api/webhooks/whatsapp/${tenant.slug}/meta`,
-      },
+      webhook: webhookUrls(tenant, config),
       numerosAutorizados: numeros,
       modulos: MODULOS,
     });
@@ -55,7 +53,7 @@ router.patch(
     if (b.tempoRetornoMin !== undefined) data.tempoRetornoMin = toInt(b.tempoRetornoMin, 15, { min: 1, max: 1440 });
     if (b.gestaoAtivo !== undefined) data.gestaoAtivo = toBool(b.gestaoAtivo);
     const config = await prisma.agenteConfig.update({ where: { tenantId: req.auth.tenantId }, data });
-    return ok(res, { ...config, whatsappConfig: mascarar(config) });
+    return ok(res, { ...config, webhookToken: undefined, whatsappConfig: mascarar(config) });
   })
 );
 
@@ -69,7 +67,7 @@ router.patch(
     const provider = b.whatsappProvider === "meta" ? "meta" : "uazapi";
     const anterior = atual.whatsappConfig || {};
     const novo = { ...(provider === atual.whatsappProvider ? anterior : {}) };
-    for (const k of ["baseUrl", "instanceToken", "webhookSecret", "accessToken", "phoneNumberId", "verifyToken", "graphBaseUrl"]) {
+    for (const k of ["baseUrl", "instanceToken", "webhookSecret", "accessToken", "phoneNumberId", "verifyToken", "graphBaseUrl", "appSecret"]) {
       // campos mascarados (com ••••) nao sobrescrevem o valor salvo
       if (b[k] !== undefined && !String(b[k]).includes("••••")) novo[k] = textOrEmpty(b[k]);
     }
@@ -77,7 +75,7 @@ router.patch(
       where: { tenantId: req.auth.tenantId },
       data: { whatsappProvider: provider, whatsappNumero: b.whatsappNumero !== undefined ? normalizePhone(b.whatsappNumero) || null : atual.whatsappNumero, whatsappConfig: novo },
     });
-    return ok(res, { ...config, whatsappConfig: mascarar(config), whatsappConectado: conexaoConfigurada(config) });
+    return ok(res, { ...config, webhookToken: undefined, whatsappConfig: mascarar(config), whatsappConectado: conexaoConfigurada(config) });
   })
 );
 
