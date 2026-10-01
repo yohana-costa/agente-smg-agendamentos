@@ -1,7 +1,7 @@
 // Seed de demonstracao: estabelecimento "Studio Demo" (slug demo).
-// Logins: dono@demo.com / recepcao@demo.com / ana@demo.com — senha 123456 em desenvolvimento.
-// Em producao a senha vem de SEED_SENHA (obrigatoria): senha de demo publicada no README nao
-// pode virar login valido no servidor.
+// Logins: SEED_DONO_EMAIL (padrao dono@demo.com) / recepcao@demo.com / ana@demo.com.
+// Senha: SEED_SENHA; em desenvolvimento cai em 123456, em producao e obrigatoria (senha de demo
+// publicada no README nao pode virar login valido no servidor).
 const bcrypt = require("bcryptjs");
 const { PrismaClient } = require("@prisma/client");
 const { criarEstabelecimento } = require("../src/services/tenant.service");
@@ -16,12 +16,14 @@ async function main() {
   if (!SENHA_DEMO) return console.log("[seed] producao sem SEED_SENHA: demo nao criado.");
   if (await prisma.tenant.findUnique({ where: { slug: "demo" } })) return console.log("[seed] demo ja existe.");
 
+  const SENHA = SENHA_DEMO;
+  const DONO_EMAIL = (process.env.SEED_DONO_EMAIL || "dono@demo.com").toLowerCase();
   const tenant = await criarEstabelecimento({
     nomeEstabelecimento: "Studio Demo",
     slug: "demo",
     nome: "Carla Dona",
-    email: "dono@demo.com",
-    senha: SENHA_DEMO,
+    email: DONO_EMAIL,
+    senha: SENHA,
     telefone: "11999990000",
   });
   const tz = tenant.timezone;
@@ -44,7 +46,7 @@ async function main() {
   const carlaId = dono.profissionalId;
   await prisma.profissional.update({ where: { id: carlaId }, data: { cor: "#007f64", comissaoPct: 0, metaServicosMes: 70 } });
 
-  const senhaHash = await bcrypt.hash(SENHA_DEMO, 10);
+  const senhaHash = await bcrypt.hash(SENHA, 10);
   const horarios = await prisma.horarioFuncionamento.findMany({ where: { tenantId: tenant.id } });
   const ana = await prisma.profissional.create({
     data: {
@@ -208,7 +210,7 @@ async function main() {
     data: { tenantId: tenant.id, telefone: "5511999990000", nome: "Carla (dona)", permissoes: { consultar: ["agenda", "clientes", "servicos", "produtos", "equipe", "financeiro", "desempenho"], alterar: ["agenda", "clientes", "servicos", "produtos", "financeiro"] } },
   });
 
-  console.log("[seed] Studio Demo criado. Login: dono@demo.com — site: /s/demo");
+  console.log(`[seed] Studio Demo criado. Login: ${DONO_EMAIL} — site: /s/demo`);
 }
 
 main()

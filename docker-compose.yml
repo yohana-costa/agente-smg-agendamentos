@@ -1,46 +1,72 @@
+# ============================================================================
+# smg-agendamentos — stack isolada
+# ============================================================================
+# A VPS hospeda varios projetos no mesmo Docker. Nada aqui repete nome, porta,
+# rede ou volume de outro projeto:
+#
+#   projeto           frontend  backend  postgres  containers
+#   smg-gestor        18090     13351    15436     smg_*
+#   smg-os            18092     13353    15438     smgos_*
+#   smg-agendamentos  18095     13356    (interno) smgag_*   <- este
+#
+# As portas publicadas escutam so em 127.0.0.1: o acesso externo e pelo Nginx do host.
+# O `name:` fixa o prefixo de rede e volume (independe do nome da pasta).
+name: smg-agendamentos
+
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: smg-ag-postgres
+    container_name: smgag_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: smg_agendamentos
-      POSTGRES_USER: smg
-      POSTGRES_PASSWORD: smg123
+      POSTGRES_DB: ${POSTGRES_DB:-smg_agendamentos}
+      POSTGRES_USER: ${POSTGRES_USER:-smgag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-troque-esta-senha}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - smgag_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U smg -d smg_agendamentos"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-smgag} -d ${POSTGRES_DB:-smg_agendamentos}"]
       interval: 5s
       timeout: 5s
       retries: 20
+    networks:
+      - smgag_network
 
   backend:
     build: ./backend
-    container_name: smg-ag-backend
+    container_name: smgag_backend
     restart: unless-stopped
     env_file: ./backend/.env
     environment:
       NODE_ENV: production
       PORT: 3355
-      DATABASE_URL: postgresql://smg:smg123@postgres:5432/smg_agendamentos?schema=public
+      # host = nome do servico na rede interna
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smgag}:${POSTGRES_PASSWORD:-troque-esta-senha}@postgres:5432/${POSTGRES_DB:-smg_agendamentos}?schema=public
     ports:
-      - "${SMG_AG_BACKEND_PORT:-3355}:3355"
+      - "127.0.0.1:${BACKEND_PORT:-13356}:3355"
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - smgag_network
 
   frontend:
     build:
       context: ./frontend
       args:
         VITE_API_URL: ${VITE_API_URL:-/api}
-    container_name: smg-ag-frontend
+    container_name: smgag_frontend
     restart: unless-stopped
     ports:
-      - "${SMG_AG_FRONTEND_PORT:-8089}:80"
+      - "127.0.0.1:${FRONTEND_PORT:-18095}:80"
     depends_on:
       - backend
+    networks:
+      - smgag_network
 
 volumes:
-  postgres_data:
+  smgag_postgres_data:
+
+networks:
+  smgag_network:
+    driver: bridge

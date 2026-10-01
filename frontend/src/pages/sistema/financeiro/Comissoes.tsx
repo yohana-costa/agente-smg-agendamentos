@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { CheckCircle2, Clock, Wallet } from 'lucide-react'
 import { del, errorMessage, get, post } from '../../../lib/api'
 import { brl, dateBr, dateTimeBr } from '../../../lib/format'
 import { useAsync } from '../../../lib/hooks'
@@ -43,9 +44,9 @@ export default function Comissoes({ periodo }: { periodo: Periodo }) {
       <SuccessBanner message={msg} />
       <ErrorBanner message={erro} />
       <div className="stats-grid">
-        <Stat label="Total a pagar no período" value={brl(total)} hint={`${lista.length} profissional(is)`} />
-        <Stat label="Já pago" value={<span className="success-text">{brl(pago)}</span>} />
-        <Stat label="Pendente" value={<span className={total - pago > 0 ? 'fi-neg' : ''}>{brl(total - pago)}</span>} />
+        <Stat icon={Wallet} grad="indigo" label="Total a pagar no período" value={brl(total)} hint={`${lista.length} profissional(is)`} />
+        <Stat icon={CheckCircle2} grad="lime" label="Já pago" value={<span className="success-text">{brl(pago)}</span>} />
+        <Stat icon={Clock} grad="amber" label="Pendente" value={<span className={total - pago > 0 ? 'fi-neg' : ''}>{brl(total - pago)}</span>} />
       </div>
       <Card title="Comissões e remuneração" subtitle={`Período ${dateBr(periodo.de)} a ${dateBr(periodo.ate)} · conforme a remuneração configurada na aba Equipe. A marcação de pago vale para este período exato.`}>
         <ErrorBanner message={error} />

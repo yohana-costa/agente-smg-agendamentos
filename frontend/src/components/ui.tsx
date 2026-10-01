@@ -1,13 +1,14 @@
 // Componentes de UI compartilhados. Use estes em todas as telas para manter o visual consistente.
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
+import { X } from 'lucide-react'
 import { brl, centsToInput, parseReais, STATUS_AGENDAMENTO, statusEfetivo, todayStr, monthRange, addDays } from '../lib/format'
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
     <header className="page-header">
-      <div>
-        <h2>{title}</h2>
-        {subtitle ? <p className="muted">{subtitle}</p> : null}
+      <div className="min-w-0">
+        <h1 className="page-title">{title}</h1>
+        {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
       </div>
       {actions ? <div className="page-actions">{actions}</div> : null}
     </header>
@@ -31,11 +32,42 @@ export function Card({ title, subtitle, actions, children, className = '' }: { t
   )
 }
 
-export function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: ReactNode }) {
+export type KpiGrad = 'indigo' | 'lime' | 'sky' | 'violet' | 'amber' | 'rose' | 'teal' | 'brand'
+
+/** Card de KPI no padrao do Gestor SMG: quadrado de icone com gradiente, valor grande e rotulo. */
+export function Stat({
+  label,
+  value,
+  hint,
+  icon: Icon,
+  grad = 'brand',
+}: {
+  label: string
+  value: ReactNode
+  hint?: ReactNode
+  icon?: ComponentType<{ className?: string }>
+  grad?: KpiGrad
+}) {
   return (
     <div className="stat-card">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
+      {Icon ? (
+        <div className={`stat-ico grad-${grad}`}>
+          <Icon />
+        </div>
+      ) : null}
+      {Icon ? (
+        <>
+          <div className="stat-value">{value}</div>
+          <div className="stat-label" style={{ marginTop: 4 }}>
+            {label}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="stat-label">{label}</div>
+          <div className="stat-value">{value}</div>
+        </>
+      )}
       {hint ? <div className="stat-hint">{hint}</div> : null}
     </div>
   )
@@ -90,7 +122,7 @@ export function Modal({
         <div className="modal-header">
           <div className="modal-title">{title}</div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Fechar">
-            ×
+            <X className="h-4 w-4" />
           </button>
         </div>
         <div className="modal-body">{children}</div>
@@ -112,7 +144,7 @@ export function Drawer({ title, onClose, children, footer }: { title: ReactNode;
         <div className="modal-header">
           <div className="modal-title">{title}</div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Fechar">
-            ×
+            <X className="h-4 w-4" />
           </button>
         </div>
         <div className="modal-body">{children}</div>

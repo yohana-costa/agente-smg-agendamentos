@@ -1,0 +1,500 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design system do painel.
+ *
+ * Dark-first: o :root JÁ é o tema ESCURO (o padrão do sistema). Os demais
+ * temas entram por classe no <html>. O :root carrega o padrão para não haver
+ * lampejo de cor errada antes do JS aplicar a classe.
+ *
+ * (histórico) Antes o :root era o tema violeta, e .dark repetia os valores
+ * para o caso de alguém ligar o toggle do next-themes. Não existe tema claro
+ * hoje; se um dia existir, ele entra como .light, sem mexer aqui.
+ *
+ * Cor da marca: --primary e --brand-2 são sobrescritos em runtime pelo
+ * TenantTheme, a partir da cor cadastrada em Configurações > Minha Empresa.
+ * Os valores abaixo são o padrão da plataforma.
+ */
+
+@layer base {
+  :root {
+    /* Superfícies — violeta profundo, não preto puro (preto puro achata tudo) */
+    --background: 222 24% 9%;
+    --foreground: 210 30% 96%;
+
+    --card: 222 22% 13%;
+    --card-foreground: 210 30% 96%;
+
+    --popover: 222 22% 14%;
+    --popover-foreground: 210 30% 96%;
+
+    /* Marca */
+    --primary: 199 89% 52%;
+    --primary-foreground: 0 0% 100%;
+    --brand-2: 172 70% 45%;
+
+    --secondary: 222 20% 19%;
+    --secondary-foreground: 210 25% 92%;
+
+    --muted: 222 18% 18%;
+    --muted-foreground: 215 16% 65%;
+
+    /*
+     * accent no shadcn NÃO é a cor de destaque: é o fundo de hover de
+     * dropdown, menu e afins. Tem que ser discreto, senão todo hover pisca.
+     * A cor vibrante é --primary / --brand-2.
+     */
+    --accent: 222 20% 22%;
+    --accent-foreground: 210 30% 96%;
+
+    --destructive: 351 83% 62%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 158 64% 52%;
+    --success-foreground: 160 60% 8%;
+
+    --warning: 38 92% 60%;
+    --warning-foreground: 38 80% 10%;
+
+    --info: 205 90% 62%;
+    --info-foreground: 205 80% 10%;
+
+    --border: 222 16% 23%;
+    --input: 222 16% 25%;
+    --ring: 199 89% 52%;
+
+    --radius: 0.9rem;
+
+    /* Sidebar um pouco mais escura que o conteúdo, para dar profundidade */
+    --sidebar-background: 222 26% 10%;
+    --sidebar-foreground: 210 25% 92%;
+    --sidebar-primary: 199 89% 52%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 20% 19%;
+    --sidebar-accent-foreground: 210 30% 96%;
+    --sidebar-border: 222 16% 19%;
+    --sidebar-ring: 265 85% 63%;
+    --sidebar-muted: 215 14% 60%;
+
+    /* Séries de gráfico e etapas de funil */
+    --funnel-1: 199 89% 52%;
+    --funnel-2: 172 70% 45%;
+    --funnel-3: 265 85% 68%;
+    --funnel-4: 158 64% 52%;
+    --funnel-5: 38 92% 60%;
+    --funnel-6: 351 83% 62%;
+    --funnel-7: 351 83% 62%;
+    --funnel-8: 225 80% 66%;
+    --funnel-9: 262 16% 55%;
+
+    --status-new: 205 90% 62%;
+    --status-contact: 265 85% 63%;
+    --status-qualified: 158 64% 52%;
+    --status-pending: 38 92% 60%;
+    --status-noresponse: 262 16% 55%;
+  }
+
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    /*
+     * Os dois glows radiais são o que tira a tela do "fundo chapado".
+     * Ficam fixos: rolar a página não move a luz, como não move num ambiente.
+     */
+    background-image:
+      radial-gradient(900px 520px at 100% -5%, hsl(var(--primary) / var(--glow-forca, 0.14)), transparent 60%),
+      radial-gradient(760px 480px at -10% 100%, hsl(var(--brand-2) / var(--glow-forca, 0.12)), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  /* Números em tabela e KPI alinham melhor com largura fixa de dígito */
+  th, td, .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 20px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer base {
+  /* No tema claro o glow tem que ser quase imperceptível, senão o fundo
+     branco fica encardido. */
+  .tema-claro {
+    --glow-forca: 0.05;
+  }
+  .tema-claro .shadow-panel,
+  .tema-claro .kpi-card {
+    box-shadow: 0 8px 24px -18px rgb(15 23 42 / 0.35);
+  }
+}
+
+@layer components {
+  /* ===== Cabeçalho de página ===== */
+  .page-header {
+    @apply mb-6 flex flex-wrap items-start justify-between gap-4;
+  }
+  .page-title {
+    @apply text-2xl font-bold tracking-tight;
+  }
+  .page-subtitle {
+    @apply mt-1 text-sm text-muted-foreground;
+  }
+
+  /* ===== KPI ===== */
+  .kpi-card {
+    @apply relative overflow-hidden rounded-2xl border bg-card p-4 sm:p-5 shadow-panel transition-all;
+  }
+  .kpi-card:hover {
+    @apply -translate-y-0.5 border-primary/30 shadow-glow;
+  }
+  /* Faixa de luz no topo do card: aparece no hover, dá vida sem poluir */
+  .kpi-card::after {
+    content: "";
+    @apply pointer-events-none absolute inset-x-0 top-0 h-px opacity-0 transition-opacity;
+    background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.8), transparent);
+  }
+  .kpi-card:hover::after {
+    @apply opacity-100;
+  }
+  .kpi-value {
+    @apply font-bold tracking-tight tabular;
+    /* Tamanho máximo (desktop). O número NUNCA quebra linha: quando não cabe,
+       o auto-ajuste (useFitKpiValues) reduz a fonte deste elemento até caber em
+       uma única linha, sem vazar. Este clamp é só o teto; o JS só diminui. */
+    font-size: clamp(0.78rem, 3.2vw, 1.5rem);
+    line-height: 1.15;
+    min-width: 0;
+    max-width: 100%;
+    white-space: nowrap;
+  }
+  .kpi-label {
+    @apply text-xs font-medium text-muted-foreground;
+  }
+  /* Quadrado colorido do ícone — o que dá identidade ao card */
+  .kpi-ico {
+    @apply mb-3 inline-flex h-11 w-11 items-center justify-center rounded-xl text-white;
+  }
+
+  /* ===== Gráficos (recharts): tooltip e eixos seguindo o tema =====
+     Sem isto, no tema escuro o tooltip fica com fundo branco e texto claro
+     (data "sumindo" no branco). Vale para todas as telas com gráfico. */
+  .recharts-default-tooltip {
+    background: hsl(var(--popover)) !important;
+    border: 1px solid hsl(var(--border)) !important;
+    border-radius: 0.5rem !important;
+  }
+  .recharts-default-tooltip .recharts-tooltip-label,
+  .recharts-default-tooltip .recharts-tooltip-item {
+    color: hsl(var(--popover-foreground)) !important;
+  }
+  .recharts-cartesian-axis-tick-value {
+    fill: hsl(var(--muted-foreground));
+  }
+
+  /* ===== Item de navegação ===== */
+  .nav-item {
+    @apply flex items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-sm font-medium text-sidebar-muted transition-all;
+  }
+  .nav-item:hover {
+    @apply bg-sidebar-accent text-sidebar-foreground;
+  }
+  .nav-active {
+    @apply border-transparent text-white;
+    background: linear-gradient(100deg, hsl(var(--primary)), hsl(var(--brand-2)));
+    box-shadow: 0 12px 24px -12px hsl(var(--primary) / 0.75);
+  }
+
+  /* ===== Status ===== */
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .status-new { @apply bg-info/15 text-info; }
+  .status-contact { @apply bg-primary/15 text-primary; }
+  .status-qualified { @apply bg-success/15 text-success; }
+  .status-pending { @apply bg-warning/15 text-warning; }
+  .status-noresponse { @apply bg-muted text-muted-foreground; }
+
+  /* ===== Funil ===== */
+  .funnel-stage {
+    @apply relative flex items-center justify-between rounded-lg px-4 py-3 text-sm font-medium transition-all;
+  }
+  .funnel-bar {
+    @apply h-2 rounded-full transition-all duration-500;
+  }
+
+  /* ===== Timeline ===== */
+  .activity-item {
+    @apply relative flex gap-4 pb-6;
+  }
+  .activity-item::before {
+    @apply absolute left-[19px] top-10 h-full w-px bg-border content-[''];
+  }
+  .activity-item:last-child::before {
+    @apply hidden;
+  }
+
+  /* ===== Chat ===== */
+  .chat-message {
+    @apply max-w-[80%] rounded-2xl px-4 py-2.5;
+  }
+  .chat-message-outgoing {
+    @apply ml-auto rounded-br-sm text-primary-foreground;
+    background: linear-gradient(100deg, hsl(var(--primary)), hsl(var(--brand-2)));
+  }
+  .chat-message-incoming {
+    @apply rounded-bl-sm bg-muted text-foreground;
+  }
+
+  /* ===== Tabela ===== */
+  .table-row-interactive {
+    @apply cursor-pointer transition-colors hover:bg-primary/5;
+  }
+
+  .priority-high { @apply text-destructive; }
+  .priority-medium { @apply text-warning; }
+  .priority-low { @apply text-success; }
+}
+
+@layer utilities {
+  .gradient-primary {
+    background: linear-gradient(100deg, hsl(var(--primary)), hsl(var(--brand-2)));
+  }
+  .gradient-accent {
+    background: linear-gradient(135deg, hsl(var(--info)), hsl(var(--primary)));
+  }
+  /* Texto em gradiente, para números de destaque */
+  .text-gradient {
+    background: linear-gradient(100deg, hsl(var(--primary)), hsl(var(--brand-2)));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Aliases mantidos para o código que já usava estes nomes */
+  .shadow-card {
+    box-shadow: 0 18px 40px -24px rgb(0 0 0 / 0.75);
+  }
+  .shadow-card-hover {
+    box-shadow: 0 18px 40px -20px hsl(var(--primary) / 0.45);
+  }
+
+  /* Vidro fosco para topbar e sobreposições */
+  .glass {
+    background: hsl(var(--card) / 0.72);
+    backdrop-filter: blur(12px);
+  }
+
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* ===========================================================================
+ * TEMAS
+ * ===========================================================================
+ * Ficam FORA de @layer base de propósito: o Tailwind faz tree-shaking das
+ * regras de classe dentro dos layers e descartava estes blocos silenciosamente
+ * (o CSS era válido, só não chegava ao navegador). CSS puro no fim do arquivo
+ * é sempre emitido e, por vir depois, vence o :root sem precisar de !important.
+ */
+/*
+ * TEMAS
+ *
+ * O :root acima é o tema "violeta" (padrão). Os blocos abaixo sobrescrevem
+ * só o que muda. A classe é aplicada no <html> pelo ThemeProvider.
+ *
+ * A classe `dark` anda junto com os temas escuros porque é ela que liga as
+ * variantes `dark:` do Tailwind. No tema claro ela NÃO entra, senão o código
+ * que usa `dark:` continuaria pintando de escuro sobre fundo claro.
+ */
+
+/* Escuro neutro: mesma estrutura, sem o roxo. Para quem acha o violeta demais. */
+.tema-violeta {
+  /* Superfícies — violeta profundo, não preto puro (preto puro achata tudo) */
+  --background: 258 32% 8%;
+  --foreground: 265 40% 96%;
+
+  --card: 258 28% 12%;
+  --card-foreground: 265 40% 96%;
+
+  --popover: 258 30% 13%;
+  --popover-foreground: 265 40% 96%;
+
+  /* Marca */
+  --primary: 265 85% 63%;
+  --primary-foreground: 0 0% 100%;
+  --brand-2: 292 80% 60%;
+
+  --secondary: 258 24% 18%;
+  --secondary-foreground: 265 30% 92%;
+
+  --muted: 258 22% 17%;
+  --muted-foreground: 262 16% 66%;
+
+  /*
+   * accent no shadcn NÃO é a cor de destaque: é o fundo de hover de
+   * dropdown, menu e afins. Tem que ser discreto, senão todo hover pisca.
+   * A cor vibrante é --primary / --brand-2.
+   */
+  --accent: 258 26% 21%;
+  --accent-foreground: 265 40% 96%;
+
+  --destructive: 351 83% 62%;
+  --destructive-foreground: 0 0% 100%;
+
+  --success: 158 64% 52%;
+  --success-foreground: 160 60% 8%;
+
+  --warning: 38 92% 60%;
+  --warning-foreground: 38 80% 10%;
+
+  --info: 205 90% 62%;
+  --info-foreground: 205 80% 10%;
+
+  --border: 258 20% 22%;
+  --input: 258 20% 24%;
+  --ring: 265 85% 63%;
+
+  --radius: 0.9rem;
+
+  /* Sidebar um pouco mais escura que o conteúdo, para dar profundidade */
+  --sidebar-background: 260 34% 9%;
+  --sidebar-foreground: 265 30% 92%;
+  --sidebar-primary: 265 85% 63%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 258 26% 18%;
+  --sidebar-accent-foreground: 265 40% 96%;
+  --sidebar-border: 258 22% 18%;
+  --sidebar-ring: 265 85% 63%;
+  --sidebar-muted: 262 14% 60%;
+
+  /* Séries de gráfico e etapas de funil */
+  --funnel-1: 265 85% 63%;
+  --funnel-2: 292 80% 60%;
+  --funnel-3: 205 90% 62%;
+  --funnel-4: 175 70% 50%;
+  --funnel-5: 158 64% 52%;
+  --funnel-6: 38 92% 60%;
+  --funnel-7: 351 83% 62%;
+  --funnel-8: 225 80% 66%;
+  --funnel-9: 262 16% 55%;
+
+  --status-new: 205 90% 62%;
+  --status-contact: 265 85% 63%;
+  --status-qualified: 158 64% 52%;
+  --status-pending: 38 92% 60%;
+  --status-noresponse: 262 16% 55%;
+}
+
+.tema-escuro {
+  --background: 222 24% 9%;
+  --foreground: 210 30% 96%;
+  --card: 222 22% 13%;
+  --card-foreground: 210 30% 96%;
+  --popover: 222 22% 14%;
+  --popover-foreground: 210 30% 96%;
+  --primary: 199 89% 52%;
+  --primary-foreground: 0 0% 100%;
+  --brand-2: 172 70% 45%;
+  --secondary: 222 20% 19%;
+  --secondary-foreground: 210 25% 92%;
+  --muted: 222 18% 18%;
+  --muted-foreground: 215 16% 65%;
+  --accent: 222 20% 22%;
+  --accent-foreground: 210 30% 96%;
+  --border: 222 16% 23%;
+  --input: 222 16% 25%;
+  --ring: 199 89% 52%;
+  --sidebar-background: 222 26% 10%;
+  --sidebar-foreground: 210 25% 92%;
+  --sidebar-primary: 199 89% 52%;
+  --sidebar-accent: 222 20% 19%;
+  --sidebar-accent-foreground: 210 30% 96%;
+  --sidebar-border: 222 16% 19%;
+  --sidebar-muted: 215 14% 60%;
+  --funnel-1: 199 89% 52%;
+  --funnel-2: 172 70% 45%;
+  --funnel-3: 265 85% 68%;
+  --funnel-4: 158 64% 52%;
+  --funnel-5: 38 92% 60%;
+  --funnel-6: 351 83% 62%;
+}
+
+/* Claro: superfícies quase brancas, texto escuro, sombras leves. */
+.tema-claro {
+  --background: 240 20% 97%;
+  --foreground: 224 40% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 224 40% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 224 40% 12%;
+  --primary: 262 80% 55%;
+  --primary-foreground: 0 0% 100%;
+  --brand-2: 292 72% 55%;
+  --secondary: 240 16% 94%;
+  --secondary-foreground: 224 40% 16%;
+  --muted: 240 16% 94%;
+  --muted-foreground: 232 12% 42%;
+  --accent: 240 18% 92%;
+  --accent-foreground: 224 40% 12%;
+  --destructive: 351 74% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 158 64% 36%;
+  --warning: 32 90% 44%;
+  --info: 205 85% 45%;
+  --border: 240 14% 88%;
+  --input: 240 14% 86%;
+  --ring: 262 80% 55%;
+  /* Sidebar clara também: "tema claro" com menu escuro confunde. Fica um
+     tom abaixo do fundo da página, para a navegação ainda se separar do
+     conteúdo sem precisar de contraste invertido. */
+  --sidebar-background: 0 0% 100%;
+  --sidebar-foreground: 224 40% 14%;
+  --sidebar-primary: 262 80% 55%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 18% 94%;
+  --sidebar-accent-foreground: 224 40% 12%;
+  --sidebar-border: 240 14% 88%;
+  --sidebar-muted: 232 12% 45%;
+}
+
+/* Aplicada por um frame durante a troca de tema (ver ThemeContext).
+   Desliga toda transição para nenhuma cor ficar presa no tema anterior. */
+.trocando-tema,
+.trocando-tema *,
+.trocando-tema *::before,
+.trocando-tema *::after {
+  transition: none !important;
+  animation: none !important;
+}
