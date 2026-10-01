@@ -161,6 +161,9 @@ export function MoneyInput({ value, onChange, placeholder = '0,00', disabled }: 
         value={text}
         placeholder={placeholder}
         disabled={disabled}
+        // O campo nasce com "0,00": sem selecionar tudo no foco, quem clica e digita 80
+        // fica com "0,0080" (R$ 0,01).
+        onFocus={(e) => e.target.select()}
         onChange={(e) => {
           setText(e.target.value)
           onChange(parseReais(e.target.value))
