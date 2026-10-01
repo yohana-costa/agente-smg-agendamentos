@@ -1,6 +1,6 @@
 /* Aba Serviços / Produtos */
 .sv-note { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-soft); margin: -8px 0 14px; }
-.sv-note .dot { background: var(--primary); }
+.sv-note .dot { background: hsl(var(--primary)); }
 .sv-toolbar { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 14px; }
 .sv-toolbar .input { max-width: 300px; }
 .sv-cat-title { display: flex; align-items: center; gap: 8px; }
@@ -13,16 +13,16 @@
 .sv-dur-pair { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
 .sv-dur-pair .sv-dur-lbl { font-size: 11px; color: var(--text-soft); text-transform: uppercase; letter-spacing: 0.04em; }
 .sv-dur-diff-up { color: var(--amber); font-size: 12px; font-weight: 600; }
-.sv-dur-diff-down { color: var(--info); font-size: 12px; font-weight: 600; }
-.sv-dur-ok { color: var(--success); font-size: 12px; font-weight: 600; }
+.sv-dur-diff-down { color: hsl(var(--info)); font-size: 12px; font-weight: 600; }
+.sv-dur-ok { color: hsl(var(--success)); font-size: 12px; font-weight: 600; }
 .sv-profs { display: flex; flex-wrap: wrap; gap: 4px; max-width: 240px; }
-.sv-prof-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; background: var(--bg-muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
-.sv-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-muted); max-height: 200px; overflow-y: auto; }
+.sv-prof-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; background: var(--bg-muted); border: 1px solid hsl(var(--border)); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.sv-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; padding: 10px; border: 1px solid hsl(var(--border)); border-radius: 10px; background: var(--bg-muted); max-height: 200px; overflow-y: auto; }
 .sv-config { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
 .sv-config-text { max-width: 640px; }
 .sv-config-title { font-weight: 700; font-size: 15px; }
-.sv-cart { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-.sv-cart-row { display: grid; grid-template-columns: 1fr 110px 110px 36px; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.sv-cart { border: 1px solid hsl(var(--border)); border-radius: 10px; overflow: hidden; }
+.sv-cart-row { display: grid; grid-template-columns: 1fr 110px 110px 36px; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid hsl(var(--border)); }
 .sv-cart-row:last-child { border-bottom: 0; }
 .sv-cart-total { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: var(--bg-muted); font-weight: 700; font-size: 15px; }
 .sv-qty { display: inline-flex; align-items: center; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; }
@@ -30,9 +30,9 @@
 .sv-qty button:disabled { opacity: 0.4; cursor: not-allowed; }
 .sv-qty span { min-width: 34px; text-align: center; font-weight: 600; }
 .sv-pix { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
-.sv-pix img { width: 220px; height: 220px; border: 1px solid var(--border); border-radius: 12px; padding: 8px; background: #fff; }
+.sv-pix img { width: 220px; height: 220px; border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 8px; background: hsl(var(--card)); }
 .sv-pix textarea { font-family: var(--mono); font-size: 12px; min-height: 70px; }
-.sv-preview { background: var(--bg-accent); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+.sv-preview { background: var(--bg-accent); border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
 .sv-itens { font-size: 12px; color: var(--text-soft); max-width: 280px; }
 @media (max-width: 600px) {
   .sv-cart-row { grid-template-columns: 1fr 90px 36px; }

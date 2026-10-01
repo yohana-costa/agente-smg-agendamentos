@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
+import { Receipt, Tag } from 'lucide-react'
 import { del, errorMessage, get, post } from '../../../lib/api'
 import { brl, dateBr, todayStr } from '../../../lib/format'
 import { useAsync } from '../../../lib/hooks'
@@ -34,8 +35,8 @@ export default function Despesas({ periodo }: { periodo: Periodo }) {
       <SuccessBanner message={msg} />
       <div className="grid-2">
         <div className="stats-grid" style={{ alignContent: 'start' }}>
-          <Stat label="Total de despesas" value={<span className="fi-neg">{brl(total)}</span>} hint={`${todas.length} lançamento(s)`} />
-          <Stat label="Maior categoria" value={porCategoria[0] ? porCategoria[0][0] : '—'} hint={porCategoria[0] ? brl(porCategoria[0][1]) : undefined} />
+          <Stat icon={Receipt} grad="rose" label="Total de despesas" value={<span className="fi-neg">{brl(total)}</span>} hint={`${todas.length} lançamento(s)`} />
+          <Stat icon={Tag} grad="violet" label="Maior categoria" value={porCategoria[0] ? porCategoria[0][0] : '—'} hint={porCategoria[0] ? brl(porCategoria[0][1]) : undefined} />
         </div>
         <Card title="Por categoria">
           <BarList items={porCategoria.map(([k, v]) => ({ key: k, label: k, value: v }))} format={(v) => brl(v)} />

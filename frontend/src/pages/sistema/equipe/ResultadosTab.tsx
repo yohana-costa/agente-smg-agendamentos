@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Banknote, Gauge, Scissors } from 'lucide-react'
 import { get } from '../../../lib/api'
 import { brl, dateBr, pct, dateTimeBr } from '../../../lib/format'
 import { useAsync } from '../../../lib/hooks'
@@ -25,9 +26,9 @@ export default function ResultadosTab({ profissionalId, mostraFinanceiro, mostra
             Período: {dateBr(data.periodo.de)} a {dateBr(data.periodo.ate)}
           </div>
           <div className="stats-grid">
-            <Stat label="Taxa de ocupação" value={pct(data.taxaOcupacao)} hint="Tempo ocupado ÷ tempo disponível" />
-            <Stat label="Serviços realizados" value={data.servicosRealizados} hint="Atendimentos concluídos" />
-            {mostraFinanceiro ? <Stat label="Faturamento gerado" value={brl(data.faturamento)} /> : null}
+            <Stat icon={Gauge} grad="sky" label="Taxa de ocupação" value={pct(data.taxaOcupacao)} hint="Tempo ocupado ÷ tempo disponível" />
+            <Stat icon={Scissors} grad="lime" label="Serviços realizados" value={data.servicosRealizados} hint="Atendimentos concluídos" />
+            {mostraFinanceiro ? <Stat icon={Banknote} grad="indigo" label="Faturamento gerado" value={brl(data.faturamento)} /> : null}
             {mostraRemuneracao && rem ? (
               <Stat
                 label={rem.remuneracaoTipo === 'FIXO' ? 'Valor fixo a receber' : 'Comissão a receber'}

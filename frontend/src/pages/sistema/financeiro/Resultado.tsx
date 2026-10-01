@@ -1,4 +1,5 @@
 import { get } from '../../../lib/api'
+import { ArrowDownRight, Banknote, PiggyBank } from 'lucide-react'
 import { brl, MONTHS, pct, todayStr } from '../../../lib/format'
 import { useAsync } from '../../../lib/hooks'
 import { Card, ErrorBanner, Loading, Progress, Stat, type Periodo } from '../../../components/ui'
@@ -27,9 +28,9 @@ export default function Resultado({ periodo }: { periodo: Periodo }) {
   return (
     <div className="stack">
       <div className="stats-grid">
-        <Stat label="Faturamento" value={brl(data.faturamento)} />
-        <Stat label="Saídas" value={<span className="fi-neg">{brl(data.reembolsos + data.taxas + data.comissoes + data.despesas)}</span>} hint="Reembolsos, taxas, comissões e despesas" />
-        <Stat label="Resultado final" value={<span className={data.resultado < 0 ? 'fi-neg' : 'success-text'}>{brl(data.resultado)}</span>} hint={fat ? `Margem de ${pct(margemFinal)}` : undefined} />
+        <Stat icon={Banknote} grad="indigo" label="Faturamento" value={brl(data.faturamento)} />
+        <Stat icon={ArrowDownRight} grad="rose" label="Saídas" value={<span className="fi-neg">{brl(data.reembolsos + data.taxas + data.comissoes + data.despesas)}</span>} hint="Reembolsos, taxas, comissões e despesas" />
+        <Stat icon={PiggyBank} grad="lime" label="Resultado final" value={<span className={data.resultado < 0 ? 'fi-neg' : 'success-text'}>{brl(data.resultado)}</span>} hint={fat ? `Margem de ${pct(margemFinal)}` : undefined} />
       </div>
       <div className="grid-2">
         <Card title="Resultado do período" subtitle="Tudo o que entrou, saiu e sobrou.">

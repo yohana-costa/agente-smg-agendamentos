@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { AlertTriangle, Banknote, CalendarCheck, CalendarDays } from 'lucide-react'
 import { get } from '../../lib/api'
 import { brl, countdown, dateBr, dateLong, dateTimeBr, pct, todayStr } from '../../lib/format'
 import { useAsync, useCountdown, useEventStream } from '../../lib/hooks'
@@ -150,11 +151,11 @@ export default function VisaoGeral() {
       <ErrorBanner message={error} />
 
       <div className="stats-grid">
-        <Stat label="Atendimentos hoje" value={data.agendaDia.length} hint={`${restantesHoje} ainda por atender`} />
-        <Stat label="Pendências" value={totalPendencias} hint={totalPendencias ? 'Precisam de ação agora' : 'Tudo em dia'} />
-        <Stat label="Atendimentos no mês" value={resumo.atendimentos} hint={`${resumo.servicos} serviço(s) realizados`} />
+        <Stat icon={CalendarCheck} grad="sky" label="Atendimentos hoje" value={data.agendaDia.length} hint={`${restantesHoje} ainda por atender`} />
+        <Stat icon={AlertTriangle} grad="amber" label="Pendências" value={totalPendencias} hint={totalPendencias ? 'Precisam de ação agora' : 'Tudo em dia'} />
+        <Stat icon={CalendarDays} grad="violet" label="Atendimentos no mês" value={resumo.atendimentos} hint={`${resumo.servicos} serviço(s) realizados`} />
         {mostraFinanceiro && resumo.faturamento !== null ? (
-          <Stat label="Faturamento do mês" value={brl(resumo.faturamento)} hint={resumo.atendimentos ? `Ticket médio ${brl(Math.round(resumo.faturamento / resumo.atendimentos))}` : 'Atendimentos concluídos'} />
+          <Stat icon={Banknote} grad="indigo" label="Faturamento do mês" value={brl(resumo.faturamento)} hint={resumo.atendimentos ? `Ticket médio ${brl(Math.round(resumo.faturamento / resumo.atendimentos))}` : 'Atendimentos concluídos'} />
         ) : null}
       </div>
 

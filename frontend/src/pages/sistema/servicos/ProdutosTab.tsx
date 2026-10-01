@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AlertTriangle, Boxes, Package } from 'lucide-react'
 import { errorMessage, get, patch } from '../../../lib/api'
 import { brl, pct } from '../../../lib/format'
 import { useAuth } from '../../../lib/auth'
@@ -81,9 +82,9 @@ export default function ProdutosTab() {
       <ErrorBanner message={erro} />
 
       <div className="stats-grid">
-        <Stat label="Produtos ativos" value={ativos.length} hint={`${produtos.length} cadastrado(s)`} />
-        <Stat label="Estoque baixo" value={<span className={baixo.length ? 'danger-text' : ''}>{baixo.length}</span>} hint={baixo.length ? baixo.slice(0, 3).map((p) => p.nome).join(', ') + (baixo.length > 3 ? '…' : '') : 'Tudo em ordem'} />
-        <Stat label="Estoque a custo" value={brl(valorEstoqueCusto)} hint={`${brl(valorEstoqueVenda)} a preço de venda`} />
+        <Stat icon={Package} grad="sky" label="Produtos ativos" value={ativos.length} hint={`${produtos.length} cadastrado(s)`} />
+        <Stat icon={AlertTriangle} grad="amber" label="Estoque baixo" value={<span className={baixo.length ? 'danger-text' : ''}>{baixo.length}</span>} hint={baixo.length ? baixo.slice(0, 3).map((p) => p.nome).join(', ') + (baixo.length > 3 ? '…' : '') : 'Tudo em ordem'} />
+        <Stat icon={Boxes} grad="indigo" label="Estoque a custo" value={brl(valorEstoqueCusto)} hint={`${brl(valorEstoqueVenda)} a preço de venda`} />
       </div>
 
       <Card

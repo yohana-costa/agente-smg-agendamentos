@@ -1,4 +1,5 @@
 import { get } from '../../../lib/api'
+import { AlertTriangle, CheckCircle2, Undo2, UserX } from 'lucide-react'
 import { brl, dateTimeBr, REGRA_REEMBOLSO } from '../../../lib/format'
 import { useAsync } from '../../../lib/hooks'
 import { Card, Empty, ErrorBanner, Loading, Stat, type Periodo } from '../../../components/ui'
@@ -17,10 +18,10 @@ export default function Reembolsos({ periodo }: { periodo: Periodo }) {
   return (
     <div className="stack">
       <div className="stats-grid">
-        <Stat label="Total devolvido" value={<span className="fi-neg">{brl(total)}</span>} hint={`${executados.length} reembolso(s) executado(s)`} />
-        <Stat label="Dentro do prazo" value={brl(porRegra('DENTRO_PRAZO'))} />
-        <Stat label="Fora do prazo" value={brl(porRegra('FORA_PRAZO'))} />
-        <Stat label="No-show" value={brl(porRegra('NO_SHOW'))} />
+        <Stat icon={Undo2} grad="rose" label="Total devolvido" value={<span className="fi-neg">{brl(total)}</span>} hint={`${executados.length} reembolso(s) executado(s)`} />
+        <Stat icon={CheckCircle2} grad="lime" label="Dentro do prazo" value={brl(porRegra('DENTRO_PRAZO'))} />
+        <Stat icon={AlertTriangle} grad="amber" label="Fora do prazo" value={brl(porRegra('FORA_PRAZO'))} />
+        <Stat icon={UserX} grad="rose" label="No-show" value={brl(porRegra('NO_SHOW'))} />
       </div>
       {falhas.length ? (
         <div className="banner error-banner">
