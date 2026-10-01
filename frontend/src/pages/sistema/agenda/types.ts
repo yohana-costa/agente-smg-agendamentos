@@ -80,6 +80,7 @@ export interface Referencias {
   venderProdutos: boolean
   intervaloSlotsMin: number
   toleranciaPendenteMin: number
+  pagamentoOnline?: boolean
 }
 
 export interface DuracaoCalculada {

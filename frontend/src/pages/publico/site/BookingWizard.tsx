@@ -50,6 +50,11 @@ export default function BookingWizard({ slug, site }: { slug: string; site: Site
   const [mostrarCupom, setMostrarCupom] = useState(false)
   const [aviso, setAviso] = useState('')
   const [erro, setErro] = useState('')
+  // Sem pagamento online o agendamento pelo site nao fecha: avisa ja no comeco, em vez de deixar
+  // o cliente preencher tudo e so descobrir no ultimo botao.
+  const semPagamentoOnline = site.pagamentoOnline === false
+  const AVISO_SEM_PAGAMENTO = 'O agendamento online está indisponível no momento. Fale com o estabelecimento para marcar seu horário.'
+
   const [enviando, setEnviando] = useState(false)
   const [recarregar, setRecarregar] = useState(0)
   const [semCobranca, setSemCobranca] = useState(false)
@@ -169,7 +174,9 @@ export default function BookingWizard({ slug, site }: { slug: string; site: Site
         setRecarregar((n) => n + 1)
         irPara('horario')
       } else {
-        setErro(errorMessage(e, 'Não foi possível concluir a reserva. Tente novamente.'))
+        const msg = errorMessage(e, 'Não foi possível concluir a reserva. Tente novamente.')
+        // a mensagem do servidor e para o dono ("ainda nao conectou o Mercado Pago"); o cliente ve a dele
+        setErro(/Mercado Pago/i.test(msg) ? AVISO_SEM_PAGAMENTO : msg)
       }
     } finally {
       setEnviando(false)
@@ -200,6 +207,7 @@ export default function BookingWizard({ slug, site }: { slug: string; site: Site
   return (
     <>
       <div ref={topoRef} className="pb-wizard">
+        {semPagamentoOnline ? <PbAlert tipo="aviso">{AVISO_SEM_PAGAMENTO}</PbAlert> : null}
         <div className="pb-stepper-wrap">
           <div className="pb-stepper-caption">
             Passo {indice + 1} de {passos.length} · <strong>{ROTULOS[passo]}</strong>
@@ -470,7 +478,7 @@ export default function BookingWizard({ slug, site }: { slug: string; site: Site
               <div className="pb-total-label">Escolha ao menos um serviço</div>
             )}
           </div>
-          <button type="button" className="btn btn-primary btn-lg pb-cta" disabled={!podeAvancar[passo] || enviando} onClick={avancar}>
+          <button type="button" className="btn btn-primary btn-lg pb-cta" disabled={!podeAvancar[passo] || enviando || (passo === 'resumo' && semPagamentoOnline)} onClick={avancar}>
             {passo === 'resumo' ? (enviando ? 'Reservando...' : 'Reservar e pagar') : passo === 'extras' && !itensExtras.length ? 'Pular' : 'Continuar'}
           </button>
         </div>

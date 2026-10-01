@@ -33,7 +33,8 @@ export function NovoAgendamentoModal({
   const [data, setData] = useState(prefill.data || todayStr())
   const [hora, setHora] = useState(prefill.hora || '')
   const [produtos, setProdutos] = useState<Record<string, number>>({})
-  const [pagamento, setPagamento] = useState<FormaPagamento>('LINK')
+  const semPagamentoOnline = refs.pagamentoOnline === false
+  const [pagamento, setPagamento] = useState<FormaPagamento>(semPagamentoOnline ? 'LOCAL' : 'LINK')
   const [observacoes, setObservacoes] = useState('')
   const [cupom, setCupom] = useState('')
   const [buscaServico, setBuscaServico] = useState('')
@@ -292,14 +293,21 @@ export function NovoAgendamentoModal({
             <span className="ag-step-n">{relacionados.length ? 6 : 5}</span> Pagamento
           </div>
           <Segmented
-            options={[
-              { key: 'LINK', label: 'Enviar link' },
-              { key: 'PIX', label: 'Pix agora' },
-              { key: 'LOCAL', label: 'Pagar no local' },
-            ]}
+            options={
+              semPagamentoOnline
+                ? [{ key: 'LOCAL', label: 'Pagar no local' }]
+                : [
+                    { key: 'LINK', label: 'Enviar link' },
+                    { key: 'PIX', label: 'Pix agora' },
+                    { key: 'LOCAL', label: 'Pagar no local' },
+                  ]
+            }
             value={pagamento}
             onChange={setPagamento}
           />
+          {semPagamentoOnline ? (
+            <div className="small muted">Enviar link e Pix ficam disponíveis depois de conectar o Mercado Pago em Configurações &gt; Pagamentos.</div>
+          ) : null}
           <div className="small muted">
             {pagamento === 'LINK'
               ? 'O cliente recebe o link pelo WhatsApp e o agendamento fica Aguardando pagamento (reserva de 15 minutos).'

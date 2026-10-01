@@ -431,6 +431,8 @@ router.get(
       venderProdutos: tenant.venderProdutos,
       intervaloSlotsMin: tenant.intervaloSlotsMin,
       toleranciaPendenteMin: tenant.toleranciaPendenteMin,
+      // sem Mercado Pago conectado nao da para enviar link nem gerar Pix
+      pagamentoOnline: require("../services/pagamentos/gateway").modo(tenant) !== "desconectado",
     });
   })
 );

@@ -48,6 +48,8 @@ export interface SitePublico {
   fidelidadeAtiva: boolean
   politica: { texto: string; prazoCancelamentoMin: number; reembolsoForaPrazoPct: number; reembolsoNoShowPct: number }
   reservaMinutos: number
+  /** false quando o estabelecimento ainda nao ligou o pagamento online */
+  pagamentoOnline?: boolean
 }
 
 export interface HorariosResposta {

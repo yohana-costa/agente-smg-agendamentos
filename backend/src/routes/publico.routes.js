@@ -88,6 +88,7 @@ router.get(
         reembolsoNoShowPct: t.reembolsoNoShowPct,
       },
       reservaMinutos: env.reservaMinutos,
+      pagamentoOnline: require("../services/pagamentos/gateway").modo(t) !== "desconectado",
     });
   })
 );

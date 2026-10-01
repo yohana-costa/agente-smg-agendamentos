@@ -445,7 +445,11 @@ async function finalizar(tenantId, id, body = {}) {
   // duracao real: so entra na media quando Iniciar e Finalizar foram clicados no momento certo
   const finalizadoEm = new Date();
   const limite = addMinutes(ag.fim, tenant.toleranciaPendenteMin);
-  const duracaoValida = Boolean(ag.iniciadoEm) && finalizadoEm <= limite;
+  // "No momento certo" vale para as duas pontas: Iniciar clicado muito antes do horario (ex.: no dia
+  // anterior, por engano) gravaria uma duracao falsa e puxaria a media do servico para baixo.
+  const MARGEM_INICIO_MIN = 30;
+  const iniciouNoHorario = Boolean(ag.iniciadoEm) && new Date(ag.iniciadoEm) >= addMinutes(ag.inicio, -MARGEM_INICIO_MIN);
+  const duracaoValida = iniciouNoHorario && finalizadoEm <= limite;
   if (duracaoValida) {
     const real = Math.max(1, Math.round((finalizadoEm - new Date(ag.iniciadoEm)) / 60000));
     const previsto = ag.servicos.reduce((acc, s) => acc + s.duracaoMin, 0) || 1;

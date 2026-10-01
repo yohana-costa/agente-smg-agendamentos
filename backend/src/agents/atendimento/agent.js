@@ -19,7 +19,9 @@ function buildSystemPrompt({ tenant, config, cliente }) {
     `Tom de voz: ${config.personaTom}.`,
     `Forma de se apresentar: ${config.personaApresentacao}`,
     `Hoje e ${WEEKDAY_NAMES[zonedParts(new Date(), tenant.timezone).weekday]}, ${formatDateBr(new Date(), tenant.timezone)} (${hoje}). Fuso: ${tenant.timezone}.`,
-    cliente ? `Cliente identificado pelo telefone: ${cliente.nome}.` : "Cliente ainda nao cadastrado (pergunte o nome antes de agendar).",
+    cliente
+      ? `Cliente identificado pelo telefone: ${cliente.nome}.`
+      : "Cliente ainda nao cadastrado. Nao peca o nome para mandar o link do site nem para informar servicos e precos; so pergunte o nome se ele preferir agendar pela conversa.",
     "",
     REGRAS,
     "",
