@@ -60,7 +60,17 @@ async function criarEstabelecimento(body) {
 
   const tenant = await prisma.$transaction(async (tx) => {
     const t = await tx.tenant.create({
-      data: { nome: nomeEstabelecimento, slug, email, telefone, siteTitulo: nomeEstabelecimento, horarios: { create: FUNCIONAMENTO_PADRAO } },
+      data: {
+        nome: nomeEstabelecimento,
+        slug,
+        email,
+        telefone,
+        documento: textOrEmpty(body.documento) || null,
+        siteTitulo: nomeEstabelecimento,
+        // Assinatura pela landing: a conta nasce bloqueada e so libera quando o pagamento confirma.
+        ...(body.pendentePagamento ? { ativo: false, statusAssinatura: "PENDENTE_PAGAMENTO" } : {}),
+        horarios: { create: FUNCIONAMENTO_PADRAO },
+      },
     });
     // Sempre equipe: o dono tambem e cadastrado como profissional.
     const profissional = await tx.profissional.create({

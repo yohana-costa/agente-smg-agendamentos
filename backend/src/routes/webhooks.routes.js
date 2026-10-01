@@ -5,6 +5,7 @@ const env = require("../config/env");
 const orchestrator = require("../agents/orchestrator");
 const pagamentos = require("../services/pagamentos/pagamento.service");
 const { getAgenteConfig } = require("../services/whatsapp/whatsapp.service");
+const assinaturas = require("../services/assinatura/assinatura.service");
 const { log } = require("../lib/helpers");
 
 const router = express.Router();
@@ -35,6 +36,22 @@ router.post("/mercadopago", async (req, res) => {
   } catch (error) {
     log("webhooks.mp", "erro", { tenantId, paymentId, erro: error.message });
     return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ---------- Asaas (mensalidade da plataforma) ----------
+// So adianta a verificacao: o status de verdade e sempre consultado na API do Asaas.
+router.post("/asaas", async (req, res) => {
+  if (env.asaasWebhookToken && req.headers["asaas-access-token"] !== env.asaasWebhookToken) {
+    return res.status(401).json({ success: false, error: "Token invalido." });
+  }
+  try {
+    const r = await assinaturas.processarWebhookAsaas(req.body || {});
+    return res.status(200).json({ success: true, data: r });
+  } catch (error) {
+    log("webhooks.asaas", "erro", { evento: req.body?.event, erro: error.message });
+    // 200 mesmo assim: o Asaas pausa a fila se receber erro, e o scheduler cobre.
+    return res.status(200).json({ success: false, error: error.message });
   }
 });
 

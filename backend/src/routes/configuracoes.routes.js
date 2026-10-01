@@ -239,4 +239,20 @@ router.put(
   })
 );
 
+// Assinatura do estabelecimento com a SMG (so leitura; cancelar e pelo suporte).
+router.get(
+  "/assinatura",
+  asyncHandler(async (req, res) => {
+    const a = await prisma.assinaturaPlataforma.findUnique({ where: { tenantId: req.auth.tenantId } });
+    return ok(res, {
+      plano: req.auth.tenant.plano,
+      status: req.auth.tenant.statusAssinatura,
+      assinatura: a
+        ? { metodo: a.metodo, valor: a.valor, status: a.status, proximoVencimento: a.proximoVencimento, confirmadaEm: a.confirmadaEm }
+        : null,
+      contatoWhatsapp: env.contatoWhatsapp,
+    });
+  })
+);
+
 module.exports = router;

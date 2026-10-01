@@ -182,9 +182,13 @@ model Tenant {
 
   plano     String   @default("ESSENCIAL")
   ativo     Boolean  @default(true)
+  // Assinatura com a SMG (landing + /assinar): ATIVO | PENDENTE_PAGAMENTO | SUSPENSO.
+  // Lojas criadas antes da assinatura (ou pelo script da SMG) ficam ATIVO.
+  statusAssinatura String @default("ATIVO")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  assinatura      AssinaturaPlataforma?
   usuarios        Usuario[]
   profissionais   Profissional[]
   horarios        HorarioFuncionamento[]
@@ -807,4 +811,27 @@ model CodigoVerificacao {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, telefone])
+}
+
+// Assinatura do estabelecimento com a SMG (mensalidade do sistema).
+// PIX: Pix Automatico do Asaas (autoriza uma vez, debito mensal sozinho).
+// Cartao: link de assinatura do Mercado Pago (plano mensal da conta da SMG).
+model AssinaturaPlataforma {
+  id                       String    @id @default(cuid())
+  tenantId                 String    @unique
+  metodo                   String // PIX | CREDIT_CARD
+  valor                    Float
+  status                   String    @default("PENDENTE") // PENDENTE | ATIVA | CANCELADA
+  asaasCustomerId          String?
+  asaasAuthorizationId     String?   @unique
+  mercadoPagoPreapprovalId String?   @unique
+  pixQrCode                String?
+  pixCopiaCola             String?
+  proximoVencimento        DateTime?
+  confirmadaEm             DateTime?
+  verificadaEm             DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }

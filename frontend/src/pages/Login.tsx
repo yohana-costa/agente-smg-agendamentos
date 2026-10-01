@@ -1,9 +1,9 @@
 import { useState, type FormEvent, type InputHTMLAttributes, type ReactNode } from 'react'
 import { ArrowUpRight, CalendarCheck, CalendarDays, Lock, Mail, ShieldCheck, Sparkles, TrendingUp, UserX } from 'lucide-react'
 import { useAuth } from '../lib/auth'
-import { errorMessage } from '../lib/api'
+import { ApiError, errorMessage } from '../lib/api'
 import { Link } from '../lib/router'
-import { ErrorBanner } from '../components/ui'
+import { ErrorBanner, SuccessBanner } from '../components/ui'
 
 /** Painel de marca da tela de login (mesmo formato do Gestor SMG: gradiente + mini cards de vidro). */
 export function AuthHero() {
@@ -133,14 +133,18 @@ export default function Login() {
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const [pendente, setPendente] = useState(false)
+  const liberado = new URLSearchParams(window.location.search).get('liberado') === '1'
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setErro('')
+    setPendente(false)
     setEnviando(true)
     try {
       await login(email, senha)
     } catch (err) {
+      setPendente(err instanceof ApiError && err.details?.codigo === 'PAGAMENTO_PENDENTE')
       setErro(errorMessage(err))
     } finally {
       setEnviando(false)
@@ -150,7 +154,13 @@ export default function Login() {
   return (
     <AuthFormShell titulo="Bem-vindo de volta" subtitulo="Entre com o seu login de dono, recepção ou profissional.">
       <form className="stack" onSubmit={onSubmit}>
+        {liberado && !erro && <SuccessBanner message="Pagamento confirmado e conta liberada. Entre com o e-mail e a senha do cadastro." />}
         <ErrorBanner message={erro} />
+        {pendente && (
+          <a className="btn btn-primary btn-block" href={`/assinar?retomar=1&email=${encodeURIComponent(email)}`}>
+            Concluir pagamento
+          </a>
+        )}
         <div className="field">
           <label>E-mail</label>
           <IconInput icon={<Mail className="h-4 w-4" />} type="email" autoComplete="email" placeholder="voce@empresa.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -163,7 +173,7 @@ export default function Login() {
           {enviando ? 'Entrando...' : 'Entrar'}
         </button>
         <p className="center text-sm text-muted-foreground">
-          Novo por aqui? <Link to="/cadastro">Cadastre seu estabelecimento</Link>
+          Novo por aqui? <Link to="/assinar">Assine o Gestor SMG</Link>
         </p>
       </form>
     </AuthFormShell>

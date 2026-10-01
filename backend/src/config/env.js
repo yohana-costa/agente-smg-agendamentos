@@ -46,6 +46,18 @@ const env = {
   gatewayTaxaPixPct: Number(process.env.GATEWAY_TAXA_PIX_PCT || 0.99),
   gatewayTaxaCartaoPct: Number(process.env.GATEWAY_TAXA_CARTAO_PCT || 4.98),
 
+  // Assinatura do sistema (landing + /assinar). Contas da SMG, nao das lojas.
+  planoMensalValor: Number(process.env.PLANO_MENSAL_VALOR || 197),
+  asaasApiKey: text(process.env.ASAAS_API_KEY),
+  asaasBaseUrl: text(process.env.ASAAS_BASE_URL, "https://api-sandbox.asaas.com/v3").replace(/\/+$/, ""),
+  // header asaas-access-token do webhook (Asaas > Integracoes > Webhooks)
+  asaasWebhookToken: text(process.env.ASAAS_WEBHOOK_TOKEN),
+  mpPlataformaAccessToken: text(process.env.MP_PLATAFORMA_ACCESS_TOKEN),
+  // Contato mostrado na landing e no aviso de conta bloqueada
+  contatoWhatsapp: text(process.env.CONTATO_WHATSAPP, "5599981036660"),
+  // Cadastro gratis pela tela /cadastro (sem assinatura). Desligado: quem entra pela landing assina.
+  cadastroGratis: text(process.env.CADASTRO_GRATIS, "false") === "true",
+
   // Reserva de horario aguardando pagamento
   reservaMinutos: int(process.env.RESERVA_MINUTOS, 15, { min: 2, max: 120 }),
   lembretePagamentoMinutos: int(process.env.LEMBRETE_PAGAMENTO_MINUTOS, 5, { min: 1, max: 60 }),

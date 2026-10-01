@@ -6,12 +6,14 @@ const vendaService = require("./venda.service");
 const google = require("./google-calendar.service");
 const { dispararAutomacao } = require("./automacao.service");
 const { retomarPausasVencidas } = require("../agents/orchestrator");
+const assinaturas = require("./assinatura/assinatura.service");
 const { addMinutes } = require("../lib/time");
 const { log } = require("../lib/helpers");
 
 let running = false;
 let timer = null;
 let ultimoGoogle = 0;
+let ultimaAssinatura = 0;
 
 async function automacoesAtivas(tipo) {
   return prisma.automacao.findMany({ where: { tipo, ativo: true }, select: { tenantId: true, disparoMin: true } });
@@ -98,6 +100,11 @@ async function tick() {
     ["aviso_retorno", () => avisosRetorno(agora)],
     ["retomar_pausas", () => retomarPausasVencidas()],
   ];
+  // Assinaturas da plataforma (Pix Automatico / cartao): no maximo 1x por minuto.
+  if (Date.now() - ultimaAssinatura > 60000) {
+    ultimaAssinatura = Date.now();
+    etapas.push(["assinaturas", () => assinaturas.verificarTodas()]);
+  }
   if (Date.now() - ultimoGoogle > env.googleSyncMinutes * 60000) {
     ultimoGoogle = Date.now();
     etapas.push(["google_sync", () => google.sincronizarTodos()]);

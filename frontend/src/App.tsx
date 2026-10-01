@@ -6,7 +6,8 @@ import { Loading } from './components/ui'
 import type { Aba } from './types'
 
 import Login from './pages/Login'
-import Cadastro from './pages/Cadastro'
+import Assinar from './pages/Assinar'
+import AssinarRetorno from './pages/AssinarRetorno'
 import VisaoGeral from './pages/sistema/VisaoGeral'
 import Agenda from './pages/sistema/Agenda'
 import Clientes from './pages/sistema/Clientes'
@@ -66,7 +67,10 @@ export default function App() {
   if ((params = matchPath('/s/:slug/portal', pathname))) return <Portal slug={params.slug} />
   if ((params = matchPath('/pagamento/:id', pathname))) return <Checkout pagamentoId={params.id} />
   if (pathname === '/login') return usuario ? <Redirect to="/app/visao-geral" /> : <Login />
-  if (pathname === '/cadastro') return usuario ? <Redirect to="/app/visao-geral" /> : <Cadastro />
+  // Conta nova so pela assinatura (o cadastro gratis foi fechado no backend).
+  if (pathname === '/cadastro') return <Redirect to="/assinar" />
+  if (pathname === '/assinar') return usuario ? <Redirect to="/app/visao-geral" /> : <Assinar />
+  if (pathname === '/assinar/retorno') return <AssinarRetorno />
   if ((params = matchPath('/app/:aba', pathname))) return <Sistema aba={params.aba} />
   if (carregando) return <Loading />
   return <Redirect to={usuario ? '/app/visao-geral' : '/login'} />

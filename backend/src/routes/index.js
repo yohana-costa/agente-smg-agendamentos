@@ -10,6 +10,7 @@ router.use("/auth", require("./auth.routes"));
 router.use("/publico", require("./publico.routes"));
 router.use("/portal", require("./portal.routes"));
 router.use("/checkout", require("./checkout.routes"));
+router.use("/assinatura", require("./assinatura.routes"));
 router.use("/webhooks", require("./webhooks.routes"));
 router.use("/integracoes", require("./integracoes.routes"));
 
