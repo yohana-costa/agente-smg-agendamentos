@@ -49,6 +49,7 @@ async function criarEstabelecimento(body) {
   const nomeEstabelecimento = requireText(body.nomeEstabelecimento, "Nome do estabelecimento");
   const nome = requireText(body.nome, "Seu nome");
   const email = requireText(body.email, "E-mail").toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw badRequest("Informe um e-mail valido.");
   const senha = textOrEmpty(body.senha);
   if (senha.length < 6) throw badRequest("A senha deve ter pelo menos 6 caracteres.");
   if (await prisma.usuario.findUnique({ where: { email } })) throw conflict("Ja existe um usuario com este e-mail.");

@@ -188,6 +188,7 @@ router.post(
   "/usuarios",
   asyncHandler(async (req, res) => {
     const email = requireText(req.body?.email, "E-mail").toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw badRequest("Informe um e-mail valido.");
     if (await prisma.usuario.findUnique({ where: { email } })) throw conflict("Ja existe um usuario com este e-mail.");
     const senha = textOrEmpty(req.body?.senha) || crypto.randomBytes(4).toString("hex");
     const usuario = await prisma.usuario.create({
