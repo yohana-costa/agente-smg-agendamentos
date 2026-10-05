@@ -76,6 +76,7 @@ async function cobrancasDoCliente(customerId) {
     id: p.id,
     status: p.status, // PENDING | RECEIVED | CONFIRMED | OVERDUE ...
     vencimento: p.dueDate || null,
+    pagoEm: p.confirmedDate || p.paymentDate || p.clientPaymentDate || null,
     valor: p.value,
   }));
 }

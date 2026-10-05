@@ -19,6 +19,18 @@ const { badRequest, conflict, notFound, createAppError } = require("../../lib/er
 const { log, textOrEmpty } = require("../../lib/helpers");
 
 const DIAS_TOLERANCIA_ATRASO = 5;
+/** Pagamento sem autorizacao ativa vale o mes pago + alguns dias de folga. */
+const DIAS_MES_PAGO = 35;
+const COBRANCA_PAGA = ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"];
+
+/** Data do ultimo pagamento recebido do cliente no Asaas (ou null). */
+function ultimoPagamento(cobrancas) {
+  const datas = cobrancas
+    .filter((c) => COBRANCA_PAGA.includes(c.status))
+    .map((c) => new Date(`${(c.pagoEm || c.vencimento || "").slice(0, 10)}T12:00:00-03:00`))
+    .filter((d) => !Number.isNaN(d.getTime()));
+  return datas.length ? new Date(Math.max(...datas.map((d) => d.getTime()))) : null;
+}
 
 function plano() {
   return {
@@ -123,13 +135,27 @@ async function encerrar(assinatura, motivo) {
 async function verificar(assinatura) {
   if (assinatura.metodo === "PIX" && assinatura.asaasAuthorizationId) {
     const auth = await asaas.statusAutorizacaoPix(assinatura.asaasAuthorizationId);
-    if (asaas.autorizacaoPixEncerrada(auth.status)) {
-      if (assinatura.status === "ATIVA") return encerrar(assinatura, `pix_automatico_${auth.status}`);
-      return prisma.assinaturaPlataforma.update({ where: { id: assinatura.id }, data: { verificadaEm: new Date() } });
-    }
-    if (!asaas.autorizacaoPixAtiva(auth.status)) return null; // ainda nao pagou o primeiro QR
-    // Ativa: confere se ha mensalidade atrasada alem da tolerancia.
     const cobrancas = assinatura.asaasCustomerId ? await asaas.cobrancasDoCliente(assinatura.asaasCustomerId).catch(() => []) : [];
+
+    if (!asaas.autorizacaoPixAtiva(auth.status)) {
+      // Pagou o QR, mas o banco do cliente ainda nao confirmou a autorizacao do Pix Automatico
+      // (ou recusou: o Asaas avisa que o valor fica recebido mesmo assim). Quem pagou nao pode
+      // ficar trancado: libera o mes pago. Sem autorizacao ativa, os meses seguintes nao sao
+      // debitados sozinhos; passado o mes, cai na regra de encerramento abaixo.
+      const ultimoPago = ultimoPagamento(cobrancas);
+      if (ultimoPago && Date.now() - ultimoPago.getTime() < DIAS_MES_PAGO * 86400000) {
+        if (assinatura.status !== "ATIVA") {
+          log("assinatura", "pix_pago_sem_autorizacao_ativa", { tenantId: assinatura.tenantId, autorizacao: auth.status });
+        }
+        return liberar(assinatura, { proximoVencimento: new Date(ultimoPago.getTime() + 30 * 86400000) });
+      }
+      if (asaas.autorizacaoPixEncerrada(auth.status)) {
+        if (assinatura.status === "ATIVA") return encerrar(assinatura, `pix_automatico_${auth.status}`);
+        return prisma.assinaturaPlataforma.update({ where: { id: assinatura.id }, data: { verificadaEm: new Date() } });
+      }
+      return null; // ainda nao pagou o primeiro QR
+    }
+    // Ativa: confere se ha mensalidade atrasada alem da tolerancia.
     const limite = Date.now() - DIAS_TOLERANCIA_ATRASO * 86400000;
     const atrasada = cobrancas.find((c) => c.status === "OVERDUE" && c.vencimento && new Date(`${c.vencimento}T23:59:59-03:00`).getTime() < limite);
     if (atrasada) return bloquearPorPagamento(assinatura, `mensalidade_atrasada_${atrasada.vencimento}`);
