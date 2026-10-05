@@ -153,6 +153,28 @@ async function consultarPagamento(tenant, paymentId) {
   };
 }
 
+// Procura no Mercado Pago um pagamento APROVADO desta cobranca (external_reference = id do
+// nosso Pagamento). Cobre Pix e cartao: no cartao o gatewayRef e da preferencia, nao do
+// pagamento, e o cliente pode ter tentado mais de uma vez. Rede de seguranca do webhook.
+async function buscarAprovadoPorReferencia(tenant, pagamentoId) {
+  if (modo(tenant) !== "mercadopago") return null;
+  const data = await mpRequest(
+    tenant,
+    "get",
+    `/v1/payments/search?external_reference=${encodeURIComponent(pagamentoId)}&sort=date_created&criteria=desc&limit=20`
+  );
+  const aprovado = (data?.results || []).find((p) => p.status === "approved" && String(p.external_reference) === String(pagamentoId));
+  if (!aprovado) return null;
+  const fee = (aprovado.fee_details || []).reduce((acc, f) => acc + Number(f.amount || 0), 0);
+  return {
+    gatewayRef: String(aprovado.id),
+    status: aprovado.status,
+    externalReference: aprovado.external_reference,
+    forma: aprovado.payment_method_id === "pix" ? "PIX" : "CARTAO",
+    taxa: Math.round(fee * 100),
+  };
+}
+
 async function reembolsar(tenant, pagamento, valor) {
   if (valor <= 0) return { gatewayRef: null };
   const ref = String(pagamento.gatewayRef || "");
@@ -183,4 +205,15 @@ async function cancelarCobranca(tenant, pagamento) {
   }
 }
 
-module.exports = { modo, exigirConectado, linkCheckout, taxaEstimada, criarPix, criarCheckoutCartao, consultarPagamento, reembolsar, cancelarCobranca };
+module.exports = {
+  modo,
+  exigirConectado,
+  linkCheckout,
+  taxaEstimada,
+  criarPix,
+  criarCheckoutCartao,
+  consultarPagamento,
+  buscarAprovadoPorReferencia,
+  reembolsar,
+  cancelarCobranca,
+};

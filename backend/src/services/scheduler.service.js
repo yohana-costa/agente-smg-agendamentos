@@ -7,6 +7,7 @@ const google = require("./google-calendar.service");
 const { dispararAutomacao } = require("./automacao.service");
 const { retomarPausasVencidas } = require("../agents/orchestrator");
 const assinaturas = require("./assinatura/assinatura.service");
+const pagamentos = require("./pagamentos/pagamento.service");
 const { addMinutes } = require("../lib/time");
 const { log } = require("../lib/helpers");
 
@@ -14,6 +15,7 @@ let running = false;
 let timer = null;
 let ultimoGoogle = 0;
 let ultimaAssinatura = 0;
+let ultimaConsultaPagamentos = 0;
 
 async function automacoesAtivas(tipo) {
   return prisma.automacao.findMany({ where: { tipo, ativo: true }, select: { tenantId: true, disparoMin: true } });
@@ -91,15 +93,22 @@ async function tick() {
   if (running) return;
   running = true;
   const agora = new Date();
-  const etapas = [
+  const etapas = [];
+  // ANTES de expirar: quem pagou e o webhook nao chegou e confirmado aqui, e o horario
+  // nao e liberado por engano. No maximo a cada 60s.
+  if (Date.now() - ultimaConsultaPagamentos > 60000) {
+    ultimaConsultaPagamentos = Date.now();
+    etapas.push(["consultar_pagamentos", () => pagamentos.sincronizarPendentes()]);
+  }
+  etapas.push(
     ["expirar_reservas", () => agendamentoService.expirarReservas()],
     ["expirar_vendas", () => vendaService.expirarVendas()],
     ["lembrete_pagamento", () => lembretesPagamento(agora)],
     ["lembrete_atendimento", () => lembretesAtendimento(agora)],
     ["pos_atendimento", () => posAtendimento(agora)],
     ["aviso_retorno", () => avisosRetorno(agora)],
-    ["retomar_pausas", () => retomarPausasVencidas()],
-  ];
+    ["retomar_pausas", () => retomarPausasVencidas()]
+  );
   // Assinaturas da plataforma (Pix Automatico / cartao): no maximo 1x por minuto.
   if (Date.now() - ultimaAssinatura > 60000) {
     ultimaAssinatura = Date.now();

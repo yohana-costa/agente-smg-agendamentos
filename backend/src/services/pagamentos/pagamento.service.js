@@ -132,6 +132,52 @@ async function processarWebhookMercadoPago({ tenantId, paymentId }) {
   return { ok: true, status: info.status };
 }
 
+// ---------- consulta de seguranca (polling) ----------
+//
+// A confirmacao principal e o webhook do Mercado Pago, mas aviso atrasado ou perdido nao
+// pode deixar o horario expirar com o cliente tendo pago. Por isso a tela de pagamento e o
+// scheduler tambem perguntam ao Mercado Pago. Mesma aprovacao idempotente do webhook.
+
+const ultimaConsulta = new Map();
+const INTERVALO_MINIMO_MS = 8000;
+
+async function sincronizarPagamento(pagamentoId, { forcar = false } = {}) {
+  const agora = Date.now();
+  if (!forcar && agora - (ultimaConsulta.get(pagamentoId) || 0) < INTERVALO_MINIMO_MS) return { ignorado: true };
+  ultimaConsulta.set(pagamentoId, agora);
+  if (ultimaConsulta.size > 5000) ultimaConsulta.clear();
+
+  const p = await prisma.pagamento.findUnique({ where: { id: pagamentoId }, include: { tenant: true } });
+  // EXPIRADO entra de proposito: pagou depois do prazo, e o confirmarPorPagamento decide.
+  if (!p || p.modo !== "ONLINE" || !["PENDENTE", "EXPIRADO"].includes(p.status)) return { ignorado: true };
+  if (p.gateway !== "mercadopago" || gateway.modo(p.tenant) !== "mercadopago") return { ignorado: true };
+
+  const info = await gateway.buscarAprovadoPorReferencia(p.tenant, p.id);
+  if (!info) return { status: p.status };
+  log("pagamentos", "aprovado_por_consulta", { pagamentoId: p.id, statusAnterior: p.status });
+  await aprovarPagamento(p.id, { forma: info.forma, taxa: info.taxa, gatewayRef: info.gatewayRef });
+  return { status: "APROVADO" };
+}
+
+// Scheduler: cobrancas online recentes ainda sem confirmacao (inclui as que expiraram ha pouco).
+async function sincronizarPendentes() {
+  const desde = new Date(Date.now() - 3 * 3600000);
+  const lista = await prisma.pagamento.findMany({
+    where: { modo: "ONLINE", gateway: "mercadopago", status: { in: ["PENDENTE", "EXPIRADO"] }, createdAt: { gt: desde } },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+    take: 40,
+  });
+  for (const { id } of lista) {
+    try {
+      await sincronizarPagamento(id, { forcar: true });
+    } catch (error) {
+      log("pagamentos", "consulta_falhou", { pagamentoId: id, erro: error.message });
+    }
+  }
+  return lista.length;
+}
+
 // Cancela as cobrancas ainda nao pagas (no sistema e, no Pix, tambem no Mercado Pago).
 async function cancelarCobrancasPendentes({ tenant, agendamentoId = null, vendaId = null }) {
   const pendentes = await prisma.pagamento.findMany({
@@ -202,6 +248,8 @@ module.exports = {
   iniciarCartao,
   aprovarPagamento,
   processarWebhookMercadoPago,
+  sincronizarPagamento,
+  sincronizarPendentes,
   reembolsar,
   cancelarCobrancasPendentes,
 };

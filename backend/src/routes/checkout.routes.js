@@ -12,6 +12,9 @@ const router = express.Router();
 router.get(
   "/:id",
   asyncHandler(async (req, res) => {
+    // A tela consulta a cada poucos segundos: aproveita para perguntar ao Mercado Pago se ja
+    // caiu (limitado por pagamento), sem depender so do webhook.
+    await pagamentos.sincronizarPagamento(req.params.id).catch(() => null);
     const p = await pagamentos.carregar(req.params.id);
     const t = p.tenant;
     const expiraEm = p.agendamento?.expiraEm || p.venda?.expiraEm || null;

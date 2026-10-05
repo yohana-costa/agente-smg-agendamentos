@@ -327,12 +327,24 @@ async function confirmarPorPagamento(agendamentoId) {
   }
 }
 
+// Ultima conferencia no Mercado Pago antes de liberar a reserva: se o cliente pagou e o
+// webhook nao chegou, a aprovacao confirma aqui e a expiracao abaixo nao pega o registro.
+async function conferirPagamentosAntesDeExpirar(filtro) {
+  const pendentes = await prisma.pagamento.findMany({ where: { ...filtro, status: "PENDENTE", gateway: "mercadopago" }, select: { id: true } });
+  for (const { id } of pendentes) {
+    await pagamentos
+      .sincronizarPagamento(id, { forcar: true })
+      .catch((e) => log("pagamentos", "conferencia_antes_de_expirar_falhou", { pagamentoId: id, erro: e.message }));
+  }
+}
+
 async function expirarReservas() {
   const vencidos = await prisma.agendamento.findMany({
     where: { status: "AGUARDANDO_PAGAMENTO", expiraEm: { lt: new Date() } },
     select: { id: true, tenantId: true, recompensaId: true, clienteId: true },
   });
   for (const ag of vencidos) {
+    await conferirPagamentosAntesDeExpirar({ agendamentoId: ag.id });
     const r = await prisma.agendamento.updateMany({
       where: { id: ag.id, status: "AGUARDANDO_PAGAMENTO" },
       data: { status: "CANCELADO", expirado: true, canceladoEm: new Date(), motivoCancelamento: "Pagamento nao realizado no prazo da reserva." },

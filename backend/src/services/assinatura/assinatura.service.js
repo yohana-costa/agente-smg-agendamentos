@@ -249,8 +249,10 @@ async function verificarTodas() {
 
 /** Webhook do Asaas: so indica QUAL assinatura olhar; o status vem da API. */
 async function processarWebhookAsaas(evento) {
-  const customer = evento?.payment?.customer || evento?.pixAutomaticAuthorization?.customerId || null;
-  const authId = evento?.pixAutomaticAuthorization?.id || null;
+  // Cobranca vem em `payment`; eventos do Pix Automatico trazem a autorizacao em `authorization`.
+  const auth = evento?.authorization || evento?.pixAutomaticAuthorization || null;
+  const customer = evento?.payment?.customer || auth?.customerId || auth?.customer || null;
+  const authId = auth?.id || null;
   const a = await prisma.assinaturaPlataforma.findFirst({
     where: { OR: [...(authId ? [{ asaasAuthorizationId: authId }] : []), ...(customer ? [{ asaasCustomerId: customer }] : [])] },
     include: { tenant: true },
