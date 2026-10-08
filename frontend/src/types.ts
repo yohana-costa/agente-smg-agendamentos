@@ -57,6 +57,9 @@ export interface ItemServicoAgendamento {
   intervaloMin: number
   ordem: number
   duracaoRealMin: number | null
+  /** Coberto por pacote: preco 0 e a sessao vem do saldo do cliente. */
+  pacoteSaldoId?: string | null
+  pacoteDevolvido?: boolean
 }
 
 export interface ItemProdutoAgendamento {
@@ -166,11 +169,35 @@ export interface Servico {
   duracaoMin: number
   intervaloMin: number
   retornoDias: number | null
+  /** Comissão própria do serviço (%). null = usa a do profissional. */
+  comissaoPct: number | null
   ativo: boolean
   profissionalIds: string[]
   produtoIds: string[]
   duracaoRealMedia: number | null
   amostrasDuracaoReal: number
+}
+
+export interface Pacote {
+  id: string
+  nome: string
+  descricao: string | null
+  preco: number
+  validadeDias: number | null
+  ativo: boolean
+  itens: Array<{ id: string; servicoId: string; nome: string; quantidade: number; precoServico: number }>
+  vendidos?: number
+}
+
+export interface PacoteCliente {
+  id: string
+  pacoteId: string
+  nome: string
+  valorPago: number
+  compradoEm: string
+  validoAte: string | null
+  status: 'ATIVO' | 'FINALIZADO' | 'VENCIDO' | 'CANCELADO'
+  saldos: Array<{ id: string; servicoId: string; nome: string; total: number; usado: number; restante: number }>
 }
 
 export interface Conflito {

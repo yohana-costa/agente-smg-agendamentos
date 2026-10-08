@@ -195,6 +195,8 @@ model Tenant {
   diasFechados    DiaFechado[]
   bloqueios       Bloqueio[]
   servicos        Servico[]
+  pacotes         Pacote[]
+  pacotesClientes PacoteCliente[]
   produtos        Produto[]
   clientes        Cliente[]
   agendamentos    Agendamento[]
@@ -362,6 +364,8 @@ model Servico {
   duracaoMin     Int
   intervaloMin   Int      @default(0)
   retornoDias    Int?
+  // Comissao propria do servico (%). Vazio = usa a comissao do profissional.
+  comissaoPct    Int?
   ativo          Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -373,6 +377,8 @@ model Servico {
   recompensas   Recompensa[]
 
   @@index([tenantId])
+  pacoteItens  PacoteItem[]
+  pacoteSaldos PacoteClienteSaldo[]
 }
 
 model ServicoProfissional {
@@ -441,6 +447,7 @@ model Cliente {
 
   @@unique([tenantId, telefone])
   @@index([tenantId, nome])
+  pacotes      PacoteCliente[]
 }
 
 model Agendamento {
@@ -497,9 +504,16 @@ model AgendamentoServico {
   intervaloMin   Int
   ordem          Int    @default(0)
   duracaoRealMin Int?
+  // Coberto por pacote: preco vira 0 (o dinheiro entrou na venda do pacote) e valorPacote
+  // guarda o valor da sessao, base da comissao. pacoteDevolvido = sessao devolvida ao saldo
+  // (agendamento cancelado ou servico nao realizado).
+  pacoteSaldoId   String?
+  valorPacote     Int     @default(0)
+  pacoteDevolvido Boolean @default(false)
 
   agendamento Agendamento @relation(fields: [agendamentoId], references: [id], onDelete: Cascade)
   servico     Servico     @relation(fields: [servicoId], references: [id])
+  pacoteSaldo PacoteClienteSaldo? @relation(fields: [pacoteSaldoId], references: [id])
 
   @@index([servicoId])
 }
@@ -837,4 +851,78 @@ model AssinaturaPlataforma {
   updatedAt                DateTime  @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// ---------- Pacotes de sessoes ----------
+// O estabelecimento monta o pacote (ex.: 4 manicures por R$ 120), vende para o cliente no
+// painel e cada agendamento coberto consome uma sessao do saldo.
+
+model Pacote {
+  id           String   @id @default(cuid())
+  tenantId     String
+  nome         String
+  descricao    String?
+  preco        Int
+  validadeDias Int? // vazio = sem validade
+  ativo        Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  itens    PacoteItem[]
+  vendidos PacoteCliente[]
+
+  @@index([tenantId])
+}
+
+model PacoteItem {
+  id         String @id @default(cuid())
+  pacoteId   String
+  servicoId  String
+  quantidade Int
+
+  pacote  Pacote  @relation(fields: [pacoteId], references: [id], onDelete: Cascade)
+  servico Servico @relation(fields: [servicoId], references: [id])
+
+  @@index([pacoteId])
+}
+
+model PacoteCliente {
+  id          String    @id @default(cuid())
+  tenantId    String
+  clienteId   String
+  pacoteId    String
+  nome        String // nome do pacote na data da venda
+  valorPago   Int
+  compradoEm  DateTime  @default(now())
+  validoAte   DateTime?
+  status      String    @default("ATIVO") // ATIVO | FINALIZADO | CANCELADO
+  pagamentoId String?
+  canceladoEm DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant  Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cliente Cliente              @relation(fields: [clienteId], references: [id])
+  pacote  Pacote               @relation(fields: [pacoteId], references: [id])
+  saldos  PacoteClienteSaldo[]
+
+  @@index([tenantId, clienteId])
+}
+
+model PacoteClienteSaldo {
+  id              String @id @default(cuid())
+  pacoteClienteId String
+  servicoId       String
+  nomeServico     String
+  total           Int
+  usado           Int    @default(0)
+  valorSessao     Int // fatia do valor pago por sessao (base da comissao)
+
+  pacoteCliente PacoteCliente        @relation(fields: [pacoteClienteId], references: [id], onDelete: Cascade)
+  servico       Servico              @relation(fields: [servicoId], references: [id])
+  itensAgenda   AgendamentoServico[]
+
+  @@index([pacoteClienteId])
+  @@index([servicoId])
 }

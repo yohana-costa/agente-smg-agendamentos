@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { PageHeader, Tabs } from '../../components/ui'
 import ServicosTab from './servicos/ServicosTab'
 import ProdutosTab from './servicos/ProdutosTab'
+import PacotesTab from './servicos/PacotesTab'
 import './servicos/servicos.css'
 
-type Aba = 'servicos' | 'produtos'
+type Aba = 'servicos' | 'produtos' | 'pacotes'
 
 export default function ServicosProdutos() {
   const [aba, setAba] = useState<Aba>('servicos')
@@ -20,9 +21,10 @@ export default function ServicosProdutos() {
         tabs={[
           { key: 'servicos', label: 'Serviços' },
           { key: 'produtos', label: 'Produtos' },
+          { key: 'pacotes', label: 'Pacotes' },
         ]}
       />
-      {aba === 'servicos' ? <ServicosTab /> : <ProdutosTab />}
+      {aba === 'servicos' ? <ServicosTab /> : aba === 'produtos' ? <ProdutosTab /> : <PacotesTab />}
     </div>
   )
 }

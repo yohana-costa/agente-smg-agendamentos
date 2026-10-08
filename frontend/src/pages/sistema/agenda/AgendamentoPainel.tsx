@@ -219,8 +219,9 @@ export function AgendamentoPainel({
                       {s.intervaloMin ? ` + ${s.intervaloMin} min intervalo` : ''}
                       {s.duracaoRealMin ? ` · real ${duration(s.duracaoRealMin)}` : ''}
                     </span>
+                    {s.pacoteSaldoId && !s.pacoteDevolvido ? <span className="badge badge-primary" style={{ marginLeft: 6 }}>pacote</span> : null}
                   </span>
-                  <span>{brl(s.preco)}</span>
+                  <span>{s.pacoteSaldoId && !s.pacoteDevolvido ? 'pacote' : brl(s.preco)}</span>
                 </div>
               ))}
               {ag.produtos.length ? (

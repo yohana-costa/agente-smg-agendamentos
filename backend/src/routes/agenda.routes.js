@@ -250,6 +250,7 @@ router.post(
       pagamento: body.pagamento,
       observacoes: body.observacoes,
       encaixe: toBool(body.encaixe),
+      usarPacote: toBool(body.usarPacote),
       cupomCodigo: textOrNull(body.cupom),
       recompensaId: textOrNull(body.recompensaId),
     });

@@ -22,6 +22,7 @@ export default function ServicoModal({ servico, categorias, profissionais, produ
   const [duracaoMin, setDuracaoMin] = useState(String(servico?.duracaoMin ?? 30))
   const [intervaloMin, setIntervaloMin] = useState(String(servico?.intervaloMin ?? 0))
   const [retornoDias, setRetornoDias] = useState(servico?.retornoDias ? String(servico.retornoDias) : '')
+  const [comissao, setComissao] = useState(servico?.comissaoPct != null ? String(servico.comissaoPct) : '')
   const [profissionalIds, setProfissionalIds] = useState<string[]>(servico?.profissionalIds || (profissionais.length === 1 ? [profissionais[0].id] : []))
   const [produtoIds, setProdutoIds] = useState<string[]>(servico?.produtoIds || [])
   const [ativo, setAtivo] = useState(servico?.ativo ?? true)
@@ -47,6 +48,7 @@ export default function ServicoModal({ servico, categorias, profissionais, produ
         duracaoMin: Number(duracaoMin) || 0,
         intervaloMin: Number(intervaloMin) || 0,
         retornoDias: retornoDias.trim() ? Number(retornoDias) : null,
+        comissaoPct: comissao.trim() ? Math.min(100, Math.max(0, Number(comissao) || 0)) : null,
         profissionalIds,
         ativo,
       }
@@ -99,6 +101,12 @@ export default function ServicoModal({ servico, categorias, profissionais, produ
             <div className="input-group">
               <input className="input" type="number" min={1} value={retornoDias} onChange={(e) => setRetornoDias(e.target.value)} placeholder="Sem retorno" />
               <span className="addon">dias</span>
+            </div>
+          </Field>
+          <Field label="Comissão do serviço" hint="Vazio = usa a comissão de cada profissional.">
+            <div className="input-group">
+              <input className="input" type="number" min={0} max={100} value={comissao} onChange={(e) => setComissao(e.target.value)} placeholder="Do profissional" />
+              <span className="addon">%</span>
             </div>
           </Field>
           <Field label="Duração média *" hint="Usada na agenda desde o primeiro dia.">

@@ -7,6 +7,7 @@ const pagamentos = require("./pagamentos/pagamento.service");
 const politica = require("./politica.service");
 const fidelidade = require("./fidelidade.service");
 const { encontrarOuCriarCliente } = require("./cliente.service");
+const pacotes = require("./pacote.service");
 const { dispararAutomacao } = require("./automacao.service");
 const { enviarTexto } = require("./whatsapp/whatsapp.service");
 const { badRequest, notFound, conflict, createAppError } = require("../lib/errors");
@@ -118,6 +119,7 @@ async function criar(input) {
     cupomCodigo,
     recompensaId,
     ignorarAgendamentoId = null,
+    usarPacote = false,
   } = input;
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant) throw notFound("Estabelecimento nao encontrado.");
@@ -170,7 +172,7 @@ async function criar(input) {
         : await encontrarOuCriarCliente(tenantId, input.cliente || {}, tx);
       if (!cliente) throw badRequest("Cliente nao encontrado.");
 
-      const itensServico = servicos.map((s, ordem) => ({
+      let itensServico = servicos.map((s, ordem) => ({
         servicoId: s.id,
         nome: s.nome,
         preco: s.preco,
@@ -178,6 +180,12 @@ async function criar(input) {
         intervaloMin: s.intervaloMin,
         ordem,
       }));
+      // Pacote do cliente (so pelo painel): cada servico coberto usa uma sessao e entra com preco 0.
+      if (usarPacote && origem === "MANUAL") {
+        const r = await pacotes.consumirNoAgendamento(tx, { tenantId, clienteId: cliente.id, itensServico, inicio: horarios.inicio });
+        if (!r.cobertos) throw badRequest("O cliente nao tem sessao de pacote disponivel para estes servicos.");
+        itensServico = r.itens;
+      }
       const valorServicos = itensServico.reduce((acc, s) => acc + s.preco, 0);
       const valorProdutos = produtosValidos.reduce((acc, p) => acc + p.produto.preco * p.quantidade, 0);
 
@@ -313,6 +321,7 @@ async function confirmarPorPagamento(agendamentoId) {
     });
     if (!conflitos.length && new Date(ag.inicio) > new Date()) {
       await prisma.agendamento.update({ where: { id: ag.id }, data: { status: "CONFIRMADO", expirado: false, canceladoEm: null, motivoCancelamento: null } });
+      await pacotes.reconsumirDoAgendamento(ag.id);
       await baixarEstoqueAgendamento(ag.id);
       await dispararAutomacao("CONFIRMACAO", ag.id);
       notificarAgenda(ag.tenantId, ag.id, "confirmado");
@@ -351,6 +360,7 @@ async function expirarReservas() {
     });
     if (!r.count) continue;
     await prisma.pagamento.updateMany({ where: { agendamentoId: ag.id, status: "PENDENTE" }, data: { status: "EXPIRADO" } });
+    await pacotes.devolverDoAgendamento(ag.id);
     await fidelidade.estornarRecompensa({ ...ag });
     log("agenda", "reserva_expirada", { agendamentoId: ag.id });
     notificarAgenda(ag.tenantId, ag.id, "expirado");
@@ -428,6 +438,7 @@ async function finalizar(tenantId, id, body = {}) {
     if (removidos.length === ag.servicos.length) throw badRequest("Confirme pelo menos um servico realizado.");
     if (removidos.length) {
       const reducao = removidos.reduce((acc, s) => acc + s.preco, 0);
+      await pacotes.devolverDoAgendamento(id, { itemIds: removidos.map((s) => s.id) });
       await prisma.agendamentoServico.deleteMany({ where: { id: { in: removidos.map((s) => s.id) } } });
       await prisma.agendamento.update({
         where: { id },
@@ -533,7 +544,10 @@ async function cancelar(tenantId, id, { tipo = "CANCELAMENTO", porEstabeleciment
     await prisma.produto.update({ where: { id: item.produtoId }, data: { estoque: { increment: item.quantidade } } });
   }
   await prisma.agendamentoProduto.updateMany({ where: { agendamentoId: id }, data: { estoqueBaixado: false } });
-  if (novoStatus === "CANCELADO") await fidelidade.estornarRecompensa(ag);
+  if (novoStatus === "CANCELADO") {
+    await fidelidade.estornarRecompensa(ag);
+    await pacotes.devolverDoAgendamento(id);
+  }
 
   if (notificar && novoStatus === "CANCELADO") {
     const textoReembolso = calculo.valor > 0 ? `Valor a ser devolvido: ${brl(calculo.valor)}.` : "";

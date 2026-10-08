@@ -5,7 +5,7 @@ import { brl, dateLong, duration, todayStr } from '../../../lib/format'
 import { useAsync } from '../../../lib/hooks'
 import { useAuth } from '../../../lib/auth'
 import { ErrorBanner, Field, Modal, Segmented, StatusBadge } from '../../../components/ui'
-import type { Agendamento, Cliente, Conflito } from '../../../types'
+import type { Agendamento, Cliente, Conflito, PacoteCliente } from '../../../types'
 import type { ClienteMin, NovoPrefill, Referencias } from './types'
 import { conflitosDoErro, pagamentoPixPendente } from './utils'
 import { ClienteSelect, ConflitosAviso, HorariosPicker, PixBox } from './Widgets'
@@ -42,6 +42,21 @@ export function NovoAgendamentoModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [criadoId, setCriadoId] = useState<string | null>(null)
+  const [pacotesCliente, setPacotesCliente] = useState<PacoteCliente[]>([])
+  const [usarPacote, setUsarPacote] = useState(true)
+
+  // saldo de pacotes do cliente escolhido (para oferecer "usar pacote")
+  useEffect(() => {
+    setPacotesCliente([])
+    if (!cliente?.id) return
+    let ativo = true
+    get<PacoteCliente[]>(`/clientes/${encodeURIComponent(cliente.id)}/pacotes`)
+      .then((r) => ativo && setPacotesCliente(r))
+      .catch(() => ativo && setPacotesCliente([]))
+    return () => {
+      ativo = false
+    }
+  }, [cliente?.id])
 
   // cliente pre-selecionado por deep link (?novo=1&clienteId=)
   useEffect(() => {
@@ -62,7 +77,17 @@ export function NovoAgendamentoModal({
 
   const duracaoServicos = selecionados.reduce((acc, s) => acc + s.duracaoMin, 0)
   const intervalos = selecionados.reduce((acc, s) => acc + s.intervaloMin, 0)
-  const valorServicos = selecionados.reduce((acc, s) => acc + s.preco, 0)
+  // servicos escolhidos que um pacote ativo do cliente cobre (uma sessao por servico)
+  const cobertosPorPacote = useMemo(() => {
+    const restante: Record<string, number> = {}
+    for (const pc of pacotesCliente) {
+      if (pc.status !== 'ATIVO' || (pc.validoAte && String(pc.validoAte).slice(0, 10) < data)) continue
+      for (const s of pc.saldos) restante[s.servicoId] = (restante[s.servicoId] || 0) + s.restante
+    }
+    return selecionados.filter((s) => (restante[s.id] || 0) > 0 && (restante[s.id]-- || 0) > 0)
+  }, [pacotesCliente, selecionados, data])
+  const usandoPacote = usarPacote && cobertosPorPacote.length > 0
+  const valorServicos = selecionados.reduce((acc, s) => acc + s.preco, 0) - (usandoPacote ? cobertosPorPacote.reduce((acc, s) => acc + s.preco, 0) : 0)
 
   const relacionados = useMemo(() => {
     if (!refs.venderProdutos) return []
@@ -100,6 +125,7 @@ export function NovoAgendamentoModal({
         observacoes: observacoes.trim() || undefined,
         cupom: cupom.trim() || undefined,
         encaixe,
+        usarPacote: usandoPacote,
       })
       const msg =
         ag.status === 'CONFIRMADO'
@@ -305,6 +331,14 @@ export function NovoAgendamentoModal({
             value={pagamento}
             onChange={setPagamento}
           />
+          {cobertosPorPacote.length ? (
+            <label className="checkbox" style={{ margin: '4px 0 8px' }}>
+              <input type="checkbox" checked={usarPacote} onChange={(e) => setUsarPacote(e.target.checked)} />
+              <span>
+                Usar pacote do cliente em <strong>{cobertosPorPacote.map((s) => s.nome).join(', ')}</strong> (sai sem cobrança e usa 1 sessão de cada)
+              </span>
+            </label>
+          ) : null}
           {semPagamentoOnline ? (
             <div className="small muted">Enviar link e Pix ficam disponíveis depois de conectar o Mercado Pago em Configurações &gt; Pagamentos.</div>
           ) : null}

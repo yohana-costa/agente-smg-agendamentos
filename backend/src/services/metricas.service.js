@@ -299,7 +299,13 @@ async function comissoes({ tenantId, from, to, start, end, profissionalId }) {
   const profs = await prisma.profissional.findMany({ where: { tenantId, ...(profissionalId ? { id: profissionalId } : {}) }, orderBy: { nome: "asc" } });
   const ags = await prisma.agendamento.findMany({
     where: { tenantId, status: "CONCLUIDO", inicio: { gte: start, lt: end }, ...(profissionalId ? { profissionalId } : {}) },
-    select: { profissionalId: true, valorServicos: true, desconto: true, valorProdutos: true, servicos: { select: { id: true } } },
+    select: {
+      profissionalId: true,
+      valorServicos: true,
+      desconto: true,
+      valorProdutos: true,
+      servicos: { select: { id: true, preco: true, valorPacote: true, pacoteSaldoId: true, pacoteDevolvido: true, servico: { select: { comissaoPct: true } } } },
+    },
   });
   const pagas = await prisma.comissaoPaga.findMany({ where: { tenantId, periodoInicio: from, periodoFim: to } });
   // valor fixo e mensal: proporcional aos dias do periodo em cada mes
@@ -308,8 +314,21 @@ async function comissoes({ tenantId, from, to, start, end, profissionalId }) {
     .filter((p) => p.ativo || ags.some((a) => a.profissionalId === p.id))
     .map((p) => {
     const doProf = ags.filter((a) => a.profissionalId === p.id);
-    const baseServicos = doProf.reduce((acc, a) => acc + Math.max(0, a.valorServicos - a.desconto), 0);
-    const valor = p.remuneracaoTipo === "FIXO" ? Math.round(p.valorFixo * fracaoMeses) : Math.round((baseServicos * p.comissaoPct) / 100);
+    // Comissao item a item: a % do servico quando ele tem uma propria; senao a do profissional.
+    // Servico pago com pacote usa o valor da sessao (o dinheiro entrou na venda do pacote).
+    let baseServicos = 0;
+    let comissao = 0;
+    for (const a of doProf) {
+      const fator = a.valorServicos > 0 ? Math.max(0, a.valorServicos - a.desconto) / a.valorServicos : 0;
+      for (const it of a.servicos) {
+        const base = it.pacoteSaldoId && !it.pacoteDevolvido ? it.valorPacote : it.preco * fator;
+        const pct = it.servico?.comissaoPct ?? p.comissaoPct;
+        baseServicos += base;
+        comissao += (base * pct) / 100;
+      }
+    }
+    baseServicos = Math.round(baseServicos);
+    const valor = p.remuneracaoTipo === "FIXO" ? Math.round(p.valorFixo * fracaoMeses) : Math.round(comissao);
     const paga = pagas.find((x) => x.profissionalId === p.id);
     return {
       profissionalId: p.id,

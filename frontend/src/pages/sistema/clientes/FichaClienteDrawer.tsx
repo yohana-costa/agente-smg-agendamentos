@@ -6,6 +6,7 @@ import { navigate } from '../../../lib/router'
 import { useAuth } from '../../../lib/auth'
 import { Drawer, Empty, ErrorBanner, Field, Loading, StatusBadge, SuccessBanner } from '../../../components/ui'
 import { dataCurta, iniciais, retornoAtrasado, SEGMENTO_BADGE, TIPO_MOVIMENTO, type FichaCliente } from './tipos'
+import PacotesCliente from './PacotesCliente'
 
 function Indicador({ label, value, danger }: { label: string; value: ReactNode; danger?: boolean }) {
   return (
@@ -166,6 +167,8 @@ export default function FichaClienteDrawer({ clienteId, onClose, onSaved }: { cl
                 </div>
               )}
             </div>
+
+            <PacotesCliente clienteId={data.cliente.id} podeEditar={podeEditar} />
 
             <div className="cl-section">
               <div className="cl-section-title">

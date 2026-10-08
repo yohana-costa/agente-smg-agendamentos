@@ -3,6 +3,7 @@ const prisma = require("../lib/prisma");
 const metricas = require("../services/metricas.service");
 const agendamentoService = require("../services/agendamento.service");
 const { encontrarOuCriarCliente } = require("../services/cliente.service");
+const pacoteService = require("../services/pacote.service");
 const { badRequest, notFound, forbidden } = require("../lib/errors");
 const { asyncHandler, ok, textOrEmpty, textOrNull, requirePhone, toInt } = require("../lib/helpers");
 
@@ -129,6 +130,32 @@ router.patch(
     }
     const atualizado = await prisma.cliente.update({ where: { id: cliente.id }, data });
     return ok(res, { ...atualizado, senhaHash: undefined });
+  })
+);
+
+// ---------- pacotes do cliente ----------
+router.get(
+  "/:id/pacotes",
+  asyncHandler(async (req, res) => {
+    const cliente = await prisma.cliente.findFirst({ where: { id: req.params.id, tenantId: req.auth.tenantId } });
+    if (!cliente) throw notFound("Cliente nao encontrado.");
+    return ok(res, await pacoteService.pacotesDoCliente(req.auth.tenantId, cliente.id));
+  })
+);
+
+router.post(
+  "/:id/pacotes",
+  asyncHandler(async (req, res) => {
+    if (req.auth.perfil === "PROFISSIONAL") throw forbidden("Apenas dono e recepcao podem vender pacotes.");
+    return ok(res, await pacoteService.venderPacote(req.auth.tenantId, req.params.id, req.body || {}));
+  })
+);
+
+router.post(
+  "/:id/pacotes/:pacoteClienteId/cancelar",
+  asyncHandler(async (req, res) => {
+    if (req.auth.perfil === "PROFISSIONAL") throw forbidden("Apenas dono e recepcao podem cancelar pacotes.");
+    return ok(res, await pacoteService.cancelarPacoteCliente(req.auth.tenantId, req.params.pacoteClienteId));
   })
 );
 

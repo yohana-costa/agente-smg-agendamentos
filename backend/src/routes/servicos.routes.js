@@ -34,6 +34,10 @@ function payload(body, parcial = false) {
   if (body.intervaloMin !== undefined) data.intervaloMin = toInt(body.intervaloMin, 0, { min: 0, max: 600 });
   if (body.retornoDias !== undefined) data.retornoDias = body.retornoDias === null || body.retornoDias === "" ? null : toInt(body.retornoDias, 0, { min: 1 });
   if (body.ativo !== undefined) data.ativo = toBool(body.ativo, true);
+  // comissao propria do servico; vazio = usa a do profissional
+  if (body.comissaoPct !== undefined) {
+    data.comissaoPct = body.comissaoPct === null || body.comissaoPct === "" ? null : toInt(body.comissaoPct, 0, { min: 0, max: 100 });
+  }
   return data;
 }
 
