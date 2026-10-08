@@ -133,6 +133,9 @@ async function encerrar(assinatura, motivo) {
  * scheduler podem chamar ao mesmo tempo sem problema.
  */
 async function verificar(assinatura) {
+  // Cancelada pelo dono: nao volta a liberar por evento do gateway. O fim do acesso e
+  // tratado em encerrarCanceladasVencidas; a volta e pelo retomar (nova cobranca).
+  if (assinatura.status === "CANCELADA") return null;
   if (assinatura.metodo === "PIX" && assinatura.asaasAuthorizationId) {
     const auth = await asaas.statusAutorizacaoPix(assinatura.asaasAuthorizationId);
     const cobrancas = assinatura.asaasCustomerId ? await asaas.cobrancasDoCliente(assinatura.asaasCustomerId).catch(() => []) : [];
@@ -191,7 +194,12 @@ async function vincularPreapproval(referencia, preapprovalId) {
   const nosso = await mp.garantirPlano();
   if (st.planoId !== nosso.id) throw badRequest("Esta assinatura não é do plano SMG Agendamentos.");
 
-  const atualizada = await prisma.assinaturaPlataforma.update({ where: { id: assinatura.id }, data: { mercadoPagoPreapprovalId: id }, include: { tenant: true } });
+  // status PENDENTE: tambem serve para reativar uma assinatura cancelada (nova assinatura no cartao).
+  const atualizada = await prisma.assinaturaPlataforma.update({
+    where: { id: assinatura.id },
+    data: { mercadoPagoPreapprovalId: id, status: "PENDENTE", canceladaEm: null, motivoCancelamento: null },
+    include: { tenant: true },
+  });
   await verificar(atualizada);
   return statusCheckout(assinatura.id);
 }
@@ -240,13 +248,86 @@ async function retomar({ email, senha }) {
       const nova = await asaas.criarAutorizacaoPixAutomatico({ clienteId: a.asaasCustomerId, valor: a.valor, descricao: `SMG Agendamentos ${usuario.tenant.nome}` });
       await prisma.assinaturaPlataforma.update({
         where: { id: a.id },
-        data: { asaasAuthorizationId: nova.id, pixQrCode: nova.encodedImage, pixCopiaCola: nova.payload, status: "PENDENTE" },
+        data: { asaasAuthorizationId: nova.id, pixQrCode: nova.encodedImage, pixCopiaCola: nova.payload, status: "PENDENTE", canceladaEm: null, motivoCancelamento: null },
       });
       return { referencia: a.id, metodo: "PIX", pix: { imagem: nova.encodedImage, copiaCola: nova.payload } };
     }
     return { referencia: a.id, metodo: "PIX", pix: { imagem: a.pixQrCode, copiaCola: a.pixCopiaCola } };
   }
   return { referencia: a.id, metodo: "CREDIT_CARD", linkPagamento: await mp.linkAssinatura() };
+}
+
+/**
+ * Cancelamento pedido pelo dono (Configuracoes > Plano).
+ *
+ * Primeiro cancela no gateway, para nao haver nova cobranca: no Asaas encerra a autorizacao
+ * do Pix Automatico, remove a assinatura que gera as mensalidades e apaga cobranca em aberto;
+ * no Mercado Pago cancela a assinatura do cartao. Se o gateway falhar, nada muda aqui e o dono
+ * tenta de novo (melhor do que marcar cancelado e continuar cobrando).
+ *
+ * O acesso continua ate o fim do periodo ja pago; depois a conta e suspensa (dados mantidos).
+ */
+async function cancelarAssinatura(tenantId, { motivo } = {}) {
+  const a = await prisma.assinaturaPlataforma.findUnique({ where: { tenantId }, include: { tenant: true } });
+  if (!a) throw notFound("Este estabelecimento não tem assinatura pela plataforma. Fale com o suporte da SMG.");
+  if (a.status === "CANCELADA") throw badRequest("A assinatura já está cancelada.");
+
+  if (a.metodo === "PIX") {
+    let subscriptionId = null;
+    if (a.asaasAuthorizationId) {
+      const auth = await asaas.statusAutorizacaoPix(a.asaasAuthorizationId).catch(() => null);
+      subscriptionId = auth?.subscriptionId || null;
+      if (!auth || !asaas.autorizacaoPixEncerrada(auth.status)) await asaas.cancelarAutorizacaoPix(a.asaasAuthorizationId);
+    }
+    if (subscriptionId) {
+      await asaas.removerAssinatura(subscriptionId).catch((e) => log("assinatura", "remover_assinatura_asaas_falhou", { tenantId, erro: e.message }));
+    }
+    const cobrancas = a.asaasCustomerId ? await asaas.cobrancasDoCliente(a.asaasCustomerId).catch(() => []) : [];
+    for (const c of cobrancas.filter((x) => ["PENDING", "OVERDUE"].includes(x.status))) {
+      await asaas.removerCobranca(c.id).catch((e) => log("assinatura", "remover_cobranca_asaas_falhou", { tenantId, cobranca: c.id, erro: e.message }));
+    }
+  } else if (a.mercadoPagoPreapprovalId) {
+    const st = await mp.statusAssinatura(a.mercadoPagoPreapprovalId);
+    if (st && !mp.assinaturaEncerrada(st.status)) await mp.cancelarAssinatura(a.mercadoPagoPreapprovalId);
+  }
+
+  // Ate quando o acesso vale: o vencimento da proxima mensalidade (ja paga a atual).
+  const agora = Date.now();
+  const base = a.proximoVencimento || (a.confirmadaEm ? new Date(new Date(a.confirmadaEm).getTime() + 30 * 86400000) : null);
+  const acessoAte = a.status === "ATIVA" && base && new Date(base).getTime() > agora ? new Date(base) : null;
+
+  await prisma.assinaturaPlataforma.update({
+    where: { id: a.id },
+    data: {
+      status: "CANCELADA",
+      canceladaEm: new Date(),
+      motivoCancelamento: textOrEmpty(motivo).slice(0, 500) || null,
+      proximoVencimento: acessoAte,
+    },
+  });
+  if (!acessoAte) {
+    await prisma.tenant.update({ where: { id: tenantId }, data: { ativo: false, statusAssinatura: "SUSPENSO" } });
+  }
+  log("assinatura", "cancelada_pelo_dono", { tenantId, metodo: a.metodo, acessoAte: acessoAte ? acessoAte.toISOString() : null });
+  return { cancelada: true, acessoAte };
+}
+
+/** Canceladas pelo dono cujo periodo pago acabou: suspende a conta (dados mantidos). */
+async function encerrarCanceladasVencidas() {
+  const lista = await prisma.assinaturaPlataforma.findMany({
+    where: {
+      status: "CANCELADA",
+      tenant: { statusAssinatura: "ATIVO" },
+      OR: [{ proximoVencimento: null }, { proximoVencimento: { lt: new Date() } }],
+    },
+    select: { id: true, tenantId: true },
+    take: 50,
+  });
+  for (const a of lista) {
+    await prisma.tenant.update({ where: { id: a.tenantId }, data: { ativo: false, statusAssinatura: "SUSPENSO" } });
+    log("assinatura", "conta_suspensa", { tenantId: a.tenantId, motivo: "cancelada_fim_do_periodo" });
+  }
+  return lista.length;
 }
 
 /** Scheduler: pendentes a cada passada; ativas no maximo a cada 6 horas. */
@@ -270,6 +351,7 @@ async function verificarTodas() {
       log("assinatura", "verificar_erro", { id: a.id, erro: e.message });
     }
   }
+  await encerrarCanceladasVencidas().catch((e) => log("assinatura", "encerrar_canceladas_erro", { erro: e.message }));
   return lista.length;
 }
 
@@ -288,4 +370,13 @@ async function processarWebhookAsaas(evento) {
   return { ok: true };
 }
 
-module.exports = { plano, iniciarAssinatura, vincularPreapproval, statusCheckout, retomar, verificarTodas, processarWebhookAsaas };
+module.exports = {
+  plano,
+  iniciarAssinatura,
+  vincularPreapproval,
+  statusCheckout,
+  retomar,
+  verificarTodas,
+  processarWebhookAsaas,
+  cancelarAssinatura,
+};

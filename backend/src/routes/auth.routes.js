@@ -61,7 +61,9 @@ router.post(
       if (st === "PENDENTE_PAGAMENTO") {
         throw createAppError("Sua assinatura está aguardando pagamento. Conclua o pagamento para liberar o acesso.", 402, { codigo: "PAGAMENTO_PENDENTE" });
       }
-      if (st === "SUSPENSO") throw createAppError("Sua assinatura foi cancelada. Fale com a SMG para reativar.", 403, { codigo: "ASSINATURA_SUSPENSA" });
+      if (st === "SUSPENSO") {
+        throw createAppError("Sua assinatura foi cancelada. Para voltar a usar, reative a assinatura (seus dados continuam guardados).", 403, { codigo: "ASSINATURA_SUSPENSA" });
+      }
       throw createAppError("Este estabelecimento está desativado.", 403);
     }
     await prisma.usuario.update({ where: { id: usuario.id }, data: { ultimoLoginEm: new Date() } });

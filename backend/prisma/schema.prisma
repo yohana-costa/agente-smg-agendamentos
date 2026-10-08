@@ -830,6 +830,9 @@ model AssinaturaPlataforma {
   proximoVencimento        DateTime?
   confirmadaEm             DateTime?
   verificadaEm             DateTime?
+  // Cancelada pelo dono (Configuracoes > Plano). O acesso segue ate proximoVencimento.
+  canceladaEm              DateTime?
+  motivoCancelamento       String?
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
 

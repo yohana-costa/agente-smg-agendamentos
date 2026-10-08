@@ -191,7 +191,9 @@ export default function Assinar() {
           ) : modo === 'retomar' ? (
             <form className="stack" onSubmit={retomar}>
               <h2 className="text-2xl font-bold tracking-tight">Concluir pagamento</h2>
-              <p className="text-sm text-muted-foreground">Já criou sua conta mas não pagou? Entre com o e-mail e a senha do cadastro.</p>
+              <p className="text-sm text-muted-foreground">
+                Criou a conta e não pagou, ou quer reativar uma assinatura cancelada? Entre com o e-mail e a senha do cadastro.
+              </p>
               <ErrorBanner message={erro} />
               <div className="field">
                 <label>E-mail</label>

@@ -1,8 +1,9 @@
-import { get } from '../../../lib/api'
+import { useState } from 'react'
+import { get, post } from '../../../lib/api'
 import { dateBr } from '../../../lib/format'
 import { useAsync } from '../../../lib/hooks'
 import { Link } from '../../../lib/router'
-import { Card } from '../../../components/ui'
+import { Card, ConfirmModal } from '../../../components/ui'
 import type { ConfigDados } from './shared'
 
 export function Integracoes({ dados }: { dados: ConfigDados }) {
@@ -62,7 +63,14 @@ const PLANO_LABEL: Record<string, string> = { ESSENCIAL: 'Essencial', PROFISSION
 
 interface AssinaturaInfo {
   status: string
-  assinatura: { metodo: 'PIX' | 'CREDIT_CARD'; valor: number; status: string; proximoVencimento: string | null; confirmadaEm: string | null } | null
+  assinatura: {
+    metodo: 'PIX' | 'CREDIT_CARD'
+    valor: number
+    status: string
+    proximoVencimento: string | null
+    confirmadaEm: string | null
+    canceladaEm: string | null
+  } | null
   contatoWhatsapp: string
 }
 
@@ -71,7 +79,12 @@ export function Plano({ dados }: { dados: ConfigDados }) {
   const info = useAsync(() => get<AssinaturaInfo>('/configuracoes/assinatura'), [])
   const a = info.data?.assinatura
   const contato = info.data?.contatoWhatsapp
+  const [confirmando, setConfirmando] = useState(false)
+  const [motivo, setMotivo] = useState('')
+  const cancelada = a?.status === 'CANCELADA'
+  const dataBr = (d: string | null) => (d ? dateBr(String(d).slice(0, 10)) : '')
   return (
+    <>
     <Card title="Plano" subtitle="Assinatura do estabelecimento com a SMG.">
       <div className="grid-3">
         <div className="stat-card">
@@ -83,17 +96,30 @@ export function Plano({ dados }: { dados: ConfigDados }) {
           <div className="stat-value">{p.ativo ? <span className="success-text">Ativo</span> : <span className="danger-text">Inativo</span>}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">{a?.proximoVencimento ? 'Próxima cobrança' : 'Cliente desde'}</div>
+          <div className="stat-label">{cancelada ? 'Acesso até' : a?.proximoVencimento ? 'Próxima cobrança' : 'Cliente desde'}</div>
           <div className="stat-value">{dateBr(String(a?.proximoVencimento || p.desde).slice(0, 10))}</div>
         </div>
       </div>
-      {a && (
+      {a && !cancelada && (
         <p className="small muted" style={{ marginTop: 12 }}>
           Forma de pagamento: {a.metodo === 'PIX' ? 'Pix Automático (débito mensal autorizado no seu banco)' : 'cartão de crédito recorrente (Mercado Pago)'}.
         </p>
       )}
+      {cancelada && (
+        <p className="small" style={{ marginTop: 12 }}>
+          Assinatura cancelada em {dataBr(a?.canceladaEm || null)}. Nenhuma nova cobrança será feita.
+          {a?.proximoVencimento ? ` Você continua usando o sistema até ${dataBr(a.proximoVencimento)}; depois a conta é suspensa e os dados ficam guardados.` : ''}
+        </p>
+      )}
+      {a && !cancelada && a.status === 'ATIVA' && (
+        <div style={{ marginTop: 12 }}>
+          <button className="btn btn-sm" onClick={() => setConfirmando(true)}>
+            Cancelar assinatura
+          </button>
+        </div>
+      )}
       <p className="small muted" style={{ marginTop: 8 }}>
-        Para trocar a forma de pagamento, cancelar ou tirar dúvidas sobre a assinatura, fale com o suporte da SMG
+        Para trocar a forma de pagamento ou tirar dúvidas sobre a assinatura, fale com o suporte da SMG
         {contato ? (
           <>
             {' '}pelo{' '}
@@ -105,5 +131,34 @@ export function Plano({ dados }: { dados: ConfigDados }) {
         .
       </p>
     </Card>
+    {confirmando && (
+      <ConfirmModal
+        title="Cancelar assinatura"
+        confirmLabel="Cancelar assinatura"
+        danger
+        onClose={() => setConfirmando(false)}
+        onConfirm={async () => {
+          await post('/configuracoes/assinatura/cancelar', { motivo })
+          info.reload()
+        }}
+      >
+        <div className="stack">
+          <p>
+            A cobrança mensal será cancelada {a?.metodo === 'PIX' ? 'no Pix Automático (seu banco para de debitar)' : 'no cartão (Mercado Pago)'} e nada mais será cobrado.
+          </p>
+          {a?.proximoVencimento && (
+            <p>
+              Você continua usando o sistema até <b>{dataBr(a.proximoVencimento)}</b>, o fim do período já pago. Depois disso a conta é suspensa, mas seus dados
+              ficam guardados caso queira voltar.
+            </p>
+          )}
+          <div className="field">
+            <label>Quer contar o motivo? (opcional)</label>
+            <textarea className="textarea" rows={2} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+          </div>
+        </div>
+      </ConfirmModal>
+    )}
+    </>
   )
 }

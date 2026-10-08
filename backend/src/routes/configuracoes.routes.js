@@ -248,10 +248,19 @@ router.get(
       plano: req.auth.tenant.plano,
       status: req.auth.tenant.statusAssinatura,
       assinatura: a
-        ? { metodo: a.metodo, valor: a.valor, status: a.status, proximoVencimento: a.proximoVencimento, confirmadaEm: a.confirmadaEm }
+        ? { metodo: a.metodo, valor: a.valor, status: a.status, proximoVencimento: a.proximoVencimento, confirmadaEm: a.confirmadaEm, canceladaEm: a.canceladaEm }
         : null,
       contatoWhatsapp: env.contatoWhatsapp,
     });
+  })
+);
+
+// Cancelar a assinatura com a SMG (so o dono: este router ja exige requireDono).
+router.post(
+  "/assinatura/cancelar",
+  asyncHandler(async (req, res) => {
+    const assinaturas = require("../services/assinatura/assinatura.service");
+    return ok(res, await assinaturas.cancelarAssinatura(req.auth.tenantId, { motivo: req.body?.motivo }));
   })
 );
 

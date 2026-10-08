@@ -62,7 +62,23 @@ async function criarAutorizacaoPixAutomatico({ clienteId, valor, descricao }) {
 
 async function statusAutorizacaoPix(id) {
   const a = await chamar(`/pix/automatic/authorizations/${encodeURIComponent(id)}`);
-  return { id: a.id, status: a.status };
+  // subscriptionId: no modo SUBSCRIPTION o Asaas cria uma assinatura que gera as cobrancas mensais.
+  return { id: a.id, status: a.status, subscriptionId: a.subscriptionId || null };
+}
+
+// Cancelamento pedido pelo cliente: encerra a autorizacao (o banco para de debitar) ...
+async function cancelarAutorizacaoPix(id) {
+  await chamar(`/pix/automatic/authorizations/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ... remove a assinatura que gera as cobrancas mensais ...
+async function removerAssinatura(subscriptionId) {
+  await chamar(`/subscriptions/${encodeURIComponent(subscriptionId)}`, { method: "DELETE" });
+}
+
+// ... e qualquer cobranca em aberto que tenha sobrado.
+async function removerCobranca(paymentId) {
+  await chamar(`/payments/${encodeURIComponent(paymentId)}`, { method: "DELETE" });
 }
 
 const autorizacaoPixAtiva = (status) => status === "ACTIVE";
@@ -81,4 +97,14 @@ async function cobrancasDoCliente(customerId) {
   }));
 }
 
-module.exports = { criarCliente, criarAutorizacaoPixAutomatico, statusAutorizacaoPix, autorizacaoPixAtiva, autorizacaoPixEncerrada, cobrancasDoCliente };
+module.exports = {
+  criarCliente,
+  criarAutorizacaoPixAutomatico,
+  statusAutorizacaoPix,
+  autorizacaoPixAtiva,
+  autorizacaoPixEncerrada,
+  cobrancasDoCliente,
+  cancelarAutorizacaoPix,
+  removerAssinatura,
+  removerCobranca,
+};

@@ -144,7 +144,7 @@ export default function Login() {
     try {
       await login(email, senha)
     } catch (err) {
-      setPendente(err instanceof ApiError && err.details?.codigo === 'PAGAMENTO_PENDENTE')
+      setPendente(err instanceof ApiError && ['PAGAMENTO_PENDENTE', 'ASSINATURA_SUSPENSA'].includes(err.details?.codigo))
       setErro(errorMessage(err))
     } finally {
       setEnviando(false)
@@ -158,7 +158,7 @@ export default function Login() {
         <ErrorBanner message={erro} />
         {pendente && (
           <a className="btn btn-primary btn-block" href={`/assinar?retomar=1&email=${encodeURIComponent(email)}`}>
-            Concluir pagamento
+            {erro.includes('reative') ? 'Reativar assinatura' : 'Concluir pagamento'}
           </a>
         )}
         <div className="field">
