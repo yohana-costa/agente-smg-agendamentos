@@ -61,6 +61,9 @@ router.post("/asaas", async (req, res) => {
 router.get("/whatsapp/:slug/meta", async (req, res) => {
   const tenant = await prisma.tenant.findUnique({ where: { slug: req.params.slug } });
   if (!tenant) return res.sendStatus(404);
+  // GET sem os parametros do handshake e checagem de saude do provedor (a Datafy nao faz o
+  // handshake da Meta). 403 aqui faria a URL parecer invalida no painel deles.
+  if (!req.query["hub.mode"] && !req.query["hub.challenge"]) return res.status(200).send("ok");
   const config = await getAgenteConfig(tenant.id);
   const token = req.query["hub.verify_token"];
   if (req.query["hub.mode"] === "subscribe" && token && token === config.whatsappConfig?.verifyToken) {

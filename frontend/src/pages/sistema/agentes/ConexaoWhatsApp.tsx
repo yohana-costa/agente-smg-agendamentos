@@ -7,7 +7,19 @@ import type { AgenteConfig, AgentesDados, Provider } from './types'
 
 type Campo = { key: string; label: string; secreto: boolean; hint?: string; placeholder?: string }
 
-const CAMPOS: Record<Provider, Campo[]> = {
+/**
+ * Opcao da tela. Datafy e API oficial por intermediario: no banco e o provider "meta" com o
+ * host da Datafy (mesmo contrato da Meta Cloud API, outro endereco).
+ */
+type Opcao = Provider | 'datafy'
+const DATAFY_URL = 'https://cloud.datafyapi.com.br/v1'
+const ehDatafy = (url: unknown) => String(url || '').includes('datafyapi')
+
+const CAMPOS: Record<Opcao, Campo[]> = {
+  datafy: [
+    { key: 'accessToken', label: 'Token da Datafy', secreto: true, hint: 'Token de acesso da sua conta na Datafy.' },
+    { key: 'phoneNumberId', label: 'Phone number ID', secreto: false, placeholder: 'Ex.: 109876543210987', hint: 'ID do número na Datafy (o mesmo da Meta).' },
+  ],
   uazapi: [
     { key: 'baseUrl', label: 'URL do servidor Uazapi', secreto: false, hint: 'Em branco: usa o servidor padrão configurado pela SMG.', placeholder: 'https://suaempresa.uazapi.com' },
     { key: 'instanceToken', label: 'Token da instância', secreto: true },
@@ -31,11 +43,12 @@ export function ConexaoWhatsApp({
   onSalvo: (r: { config: Partial<AgenteConfig>; whatsappConectado: boolean }) => void
 }) {
   const salvo = dados.config
-  const [provider, setProvider] = useState<Provider>(salvo.whatsappProvider === 'meta' ? 'meta' : 'uazapi')
+  const opcaoSalva: Opcao = salvo.whatsappProvider === 'meta' ? (ehDatafy(salvo.whatsappConfig?.graphBaseUrl) ? 'datafy' : 'meta') : 'uazapi'
+  const [provider, setProvider] = useState<Opcao>(opcaoSalva)
   const [numero, setNumero] = useState(salvo.whatsappNumero ? phone(salvo.whatsappNumero) : '')
-  const valoresIniciais = (p: Provider) => {
+  const valoresIniciais = (p: Opcao) => {
     const v: Record<string, string> = {}
-    for (const c of CAMPOS[p]) v[c.key] = !c.secreto && p === salvo.whatsappProvider ? String(salvo.whatsappConfig?.[c.key] || '') : ''
+    for (const c of CAMPOS[p]) v[c.key] = !c.secreto && p === opcaoSalva ? String(salvo.whatsappConfig?.[c.key] || '') : ''
     return v
   }
   const [valores, setValores] = useState<Record<string, string>>(() => valoresIniciais(provider))
@@ -43,10 +56,10 @@ export function ConexaoWhatsApp({
   const [erro, setErro] = useState('')
   const [ok, setOk] = useState('')
 
-  const mesmoProvider = provider === salvo.whatsappProvider
+  const mesmoProvider = provider === opcaoSalva
   const mascarado = (k: string) => (mesmoProvider ? salvo.whatsappConfig?.[k] : undefined)
 
-  function trocarProvider(p: Provider) {
+  function trocarProvider(p: Opcao) {
     setProvider(p)
     setValores(valoresIniciais(p))
     setOk('')
@@ -56,7 +69,10 @@ export function ConexaoWhatsApp({
     setSalvando(true)
     setErro('')
     setOk('')
-    const body: Record<string, string> = { whatsappProvider: provider, whatsappNumero: numero }
+    const body: Record<string, string> = { whatsappProvider: provider === 'datafy' ? 'meta' : provider, whatsappNumero: numero }
+    // Meta e Datafy sao o mesmo provider no banco: o que muda e o host da API.
+    if (provider === 'datafy') body.graphBaseUrl = DATAFY_URL
+    if (provider === 'meta') body.graphBaseUrl = ''
     for (const c of CAMPOS[provider]) {
       const v = (valores[c.key] || '').trim()
       if (c.secreto) {
@@ -80,7 +96,7 @@ export function ConexaoWhatsApp({
     }
   }
 
-  const webhook = provider === 'meta' ? dados.webhook.meta : dados.webhook.uazapi
+  const webhook = provider === 'uazapi' ? dados.webhook.uazapi : dados.webhook.meta
 
   return (
     <div className="stack">
@@ -103,8 +119,9 @@ export function ConexaoWhatsApp({
               <Field label="Provedor">
                 <Segmented
                   options={[
-                    { key: 'uazapi', label: 'Uazapi' },
+                    { key: 'datafy', label: 'Datafy (API oficial)' },
                     { key: 'meta', label: 'Meta Cloud API' },
+                    { key: 'uazapi', label: 'Uazapi' },
                   ]}
                   value={provider}
                   onChange={(p) => isDono && trocarProvider(p)}
@@ -154,7 +171,16 @@ export function ConexaoWhatsApp({
         </div>
 
         <div className="ia-side">
-          <Card title="URL do webhook" subtitle={provider === 'meta' ? 'Cadastre no painel da Meta (WhatsApp > Configuração > Webhook) junto com o verify token.' : 'Cadastre na sua instância Uazapi para receber as mensagens. Use a URL inteira: o token no final é o que protege o webhook.'}>
+          <Card
+            title="URL do webhook"
+            subtitle={
+              provider === 'datafy'
+                ? 'Cadastre esta URL no painel da Datafy como webhook de mensagens. Use a URL inteira: o token no final é o que protege o webhook.'
+                : provider === 'meta'
+                  ? 'Cadastre no painel da Meta (WhatsApp > Configuração > Webhook) junto com o verify token.'
+                  : 'Cadastre na sua instância Uazapi para receber as mensagens. Use a URL inteira: o token no final é o que protege o webhook.'
+            }
+          >
             <div className="stack">
               <CopyField value={webhook} />
               <details>
@@ -163,9 +189,9 @@ export function ConexaoWhatsApp({
                 </summary>
                 <div style={{ marginTop: 8 }}>
                   <div className="small muted" style={{ marginBottom: 4 }}>
-                    {provider === 'meta' ? 'Uazapi' : 'Meta Cloud API'}
+                    {provider === 'uazapi' ? 'Meta Cloud API / Datafy' : 'Uazapi'}
                   </div>
-                  <CopyField value={provider === 'meta' ? dados.webhook.uazapi : dados.webhook.meta} />
+                  <CopyField value={provider === 'uazapi' ? dados.webhook.meta : dados.webhook.uazapi} />
                 </div>
               </details>
             </div>

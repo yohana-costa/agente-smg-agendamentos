@@ -1,4 +1,11 @@
 // Providers de WhatsApp (mesmos do Gestor SMG varejo): Uazapi e Meta Cloud API.
+//
+// Datafy: reimplementa o contrato da Meta Cloud API num host proprio (mesmo corpo de
+// requisicao), entao e o provider "meta" com graphBaseUrl = https://cloud.datafyapi.com.br/v1.
+// Diferencas tratadas aqui (validadas no Adega do Prado e no assist-proto em 09/2026):
+//  - o webhook entrega so o elemento de `changes` ({ field, value }), sem o `entry`;
+//  - o metadado da midia sai de {raiz}/media/{id} (sem o /v1), nao de /{id};
+//  - nao faz o handshake de verify_token (o GET de saude precisa responder 200).
 const axios = require("axios");
 const env = require("../../config/env");
 const { normalizePhone, textOrEmpty, log } = require("../../lib/helpers");
@@ -87,11 +94,19 @@ function parseUazapi(payload) {
   ];
 }
 
+// Os tres formatos que chegam: Meta { entry: [{ changes: [{ value }] }] }, Datafy { field, value }
+// e { changes: [{ value }] }. O conteudo de `value` e identico em todos.
+function valoresMeta(payload) {
+  if (Array.isArray(payload?.entry)) return payload.entry.flatMap((e) => (e?.changes || []).map((c) => c?.value || {}));
+  if (Array.isArray(payload?.changes)) return payload.changes.map((c) => c?.value || {});
+  if (payload?.value && typeof payload.value === "object") return [payload.value];
+  return [];
+}
+
 function parseMeta(payload) {
   const events = [];
-  for (const entry of payload?.entry || []) {
-    for (const change of entry?.changes || []) {
-      const value = change?.value || {};
+  for (const value of valoresMeta(payload)) {
+    {
       const contacts = value.contacts || [];
       for (const message of value.messages || []) {
         const text =
@@ -158,10 +173,16 @@ async function downloadUazapiMedia(config, messageId) {
 }
 
 // Meta: GET /{media-id} devolve uma URL temporaria, baixada com o mesmo token.
+// Intermediario (Datafy): /{media-id} repassa para a Meta e devolve uma URL que responde 401;
+// a rota que funciona e /media/{id} na raiz do host, sem a versao.
 async function downloadMetaMedia(config, mediaId) {
   const cfg = metaConfig(config);
   const headers = { Authorization: `Bearer ${cfg.accessToken}` };
-  const meta = await axios.get(`${cfg.graphBaseUrl}/${encodeURIComponent(mediaId)}`, { headers, timeout: 30000 });
+  const intermediario = cfg.graphBaseUrl !== env.metaGraphBaseUrl.replace(/\/+$/, "");
+  const urlMetadado = intermediario
+    ? `${cfg.graphBaseUrl.replace(/\/v\d+(\.\d+)?$/, "")}/media/${encodeURIComponent(mediaId)}`
+    : `${cfg.graphBaseUrl}/${encodeURIComponent(mediaId)}`;
+  const meta = await axios.get(urlMetadado, { headers, timeout: 30000 });
   const bin = await axios.get(meta.data.url, { headers, responseType: "arraybuffer", timeout: 60000 });
   return { buffer: Buffer.from(bin.data), mimeType: meta.data.mime_type || bin.headers["content-type"] || "audio/ogg" };
 }
