@@ -12,6 +12,7 @@ const { addMinutes } = require("../lib/time");
 const { getAgenteConfig, obterConversa, registrarMensagem, enviarTexto } = require("../services/whatsapp/whatsapp.service");
 const { parseUazapi, parseMeta } = require("../services/whatsapp/providers");
 const { textoDaMidia } = require("../services/whatsapp/midia.service");
+const historicoCoex = require("../services/whatsapp/historico.service");
 const atendimentoAgent = require("./atendimento/agent");
 const gestaoAgent = require("./gestao/agent");
 
@@ -270,6 +271,13 @@ async function processarWebhook({ tenantSlug, provider, payload, headers = {}, q
   const config = await getAgenteConfig(tenant.id);
   if (!webhookAutorizado({ provider, config, headers, query, rawBody })) {
     throw Object.assign(new Error("Webhook nao autorizado."), { statusCode: 401 });
+  }
+  // Historico da coexistencia e mensagem antiga: guarda antes de responder (erro aqui vira 500
+  // e a Datafy reenvia). Nao passa pelo agente: nao pausa conversa nem gera resposta.
+  if (provider === "meta" && (historicoCoex.ehEventoHistorico(payload) || historicoCoex.ehEntregaAntiga(payload))) {
+    await historicoCoex.guardarBruto({ tenantId: tenant.id, payload, headers });
+    setImmediate(() => historicoCoex.processarPendentes(tenant.id));
+    return [{ historico: true }];
   }
   const eventos = provider === "meta" ? parseMeta(payload) : parseUazapi(payload);
   const resultados = [];

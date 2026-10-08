@@ -10,7 +10,8 @@ app.use(helmet());
 app.use(cors());
 app.use(
   express.json({
-    limit: "2mb",
+    // 20mb: os blocos do historico da coexistencia (webhook "history") passam de 2mb
+    limit: "20mb",
     // corpo cru so do webhook do WhatsApp: a assinatura da Meta e calculada sobre ele
     verify: (req, _res, buf) => {
       if (req.originalUrl && req.originalUrl.startsWith("/api/webhooks/whatsapp")) req.rawBody = buf;

@@ -214,6 +214,7 @@ model Tenant {
   automacoes      Automacao[]
   automacaoEnvios AutomacaoEnvio[]
   codigosVerificacao CodigoVerificacao[]
+  whatsappHistoricoBruto WhatsappHistoricoBruto[]
 }
 
 model Usuario {
@@ -780,6 +781,26 @@ model Mensagem {
 
   @@index([conversaId, createdAt])
   @@index([externalId])
+}
+
+// Bloco cru do historico da coexistencia (webhook "history" da Datafy/Meta). Gravado antes de
+// responder ao provedor; virar conversa e etapa separada (historico.service.js).
+model WhatsappHistoricoBruto {
+  id           String    @id @default(cuid())
+  tenantId     String
+  chave        String
+  phase        Int?
+  chunkOrder   Int?
+  progress     Int?
+  payload      Json
+  processadoEm DateTime?
+  erro         String?
+  createdAt    DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, chave])
+  @@index([tenantId, processadoEm])
 }
 
 model Automacao {
