@@ -46,6 +46,14 @@ router.get(
 router.post(
   "/",
   asyncHandler(async (req, res) => {
+    // Sem telefone (opcional no painel): cria so pelo nome. Com telefone, segue a regra de
+    // identificacao pelo numero (o mesmo numero reaproveita o cadastro).
+    if (!String(req.body?.telefone || "").replace(/\D/g, "")) {
+      const nome = textOrEmpty(req.body?.nome);
+      if (!nome) throw badRequest("Informe o nome do cliente.");
+      const criado = await prisma.cliente.create({ data: { tenantId: req.auth.tenantId, nome, observacoes: textOrNull(req.body?.observacoes) } });
+      return ok(res, { ...criado, senhaHash: undefined, jaExistia: false });
+    }
     const telefone = requirePhone(req.body?.telefone);
     const existente = await prisma.cliente.findUnique({ where: { tenantId_telefone: { tenantId: req.auth.tenantId, telefone } } });
     let cliente = await encontrarOuCriarCliente(req.auth.tenantId, { telefone, nome: req.body?.nome });
@@ -110,7 +118,8 @@ router.patch(
     if (req.body.nome !== undefined) data.nome = textOrEmpty(req.body.nome) || cliente.nome;
     if (req.body.email !== undefined) data.email = textOrNull(req.body.email);
     if (req.body.observacoes !== undefined) data.observacoes = textOrNull(req.body.observacoes);
-    if (req.body.telefone !== undefined) {
+    // Telefone vazio na edicao: mantem o que ja existe (nao apaga o numero sem querer).
+    if (req.body.telefone !== undefined && String(req.body.telefone || "").replace(/\D/g, "")) {
       const telefone = requirePhone(req.body.telefone);
       if (telefone !== cliente.telefone) {
         const outro = await prisma.cliente.findUnique({ where: { tenantId_telefone: { tenantId: req.auth.tenantId, telefone } } });

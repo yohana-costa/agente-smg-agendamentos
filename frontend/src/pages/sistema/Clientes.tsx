@@ -149,7 +149,7 @@ export default function Clientes() {
                           </div>
                         </div>
                       </td>
-                      <td className="nowrap">{phone(c.telefone)}</td>
+                      <td className="nowrap">{c.telefone ? phone(c.telefone) : <span className="muted">sem telefone</span>}</td>
                       <td>{c.segmento ? <span className={`badge ${SEGMENTO_BADGE[c.segmento] || ''}`}>{SEGMENTO_CLIENTE[c.segmento] || c.segmento}</span> : '—'}</td>
                       <td className="nowrap">{dataCurta(c.ultimoAtendimento)}</td>
                       <td className={`nowrap ${c.segmento === 'RETORNO_ATRASADO' || (c.segmento !== 'INATIVO' && retornoAtrasado(c.retornoSugerido)) ? 'cl-late' : ''}`}>

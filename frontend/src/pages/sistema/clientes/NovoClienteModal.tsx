@@ -12,7 +12,9 @@ export default function NovoClienteModal({ onClose, onCreated }: { onClose: () =
 
   async function salvar() {
     if (!form.nome.trim()) return setError('Informe o nome.')
-    if (form.telefone.replace(/\D/g, '').length < 10) return setError('Informe o telefone com DDD.')
+    const digitos = form.telefone.replace(/\D/g, '')
+    if (!form.nome.trim()) return setError('Informe o nome do cliente.')
+    if (digitos && digitos.length < 10) return setError('Informe o telefone com DDD (ou deixe em branco).')
     setSaving(true)
     setError('')
     try {
@@ -49,11 +51,14 @@ export default function NovoClienteModal({ onClose, onCreated }: { onClose: () =
           salvar()
         }}
       >
-        <div className="banner info-banner">O cliente é identificado pelo telefone. Se o número já estiver cadastrado, o cadastro existente será usado e o nome atualizado.</div>
+        <div className="banner info-banner">
+          O cliente é identificado pelo telefone. Se o número já estiver cadastrado, o cadastro existente será usado e o nome atualizado. O telefone é
+          opcional, mas sem ele o cliente não recebe lembretes nem mensagens no WhatsApp.
+        </div>
         <Field label="Nome *">
           <input className="input" autoFocus value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Nome do cliente" />
         </Field>
-        <Field label="Telefone (WhatsApp) *">
+        <Field label="Telefone (WhatsApp)">
           <input className="input" inputMode="tel" value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} placeholder="(11) 99999-9999" />
         </Field>
         <Field label="Observações">
