@@ -12,6 +12,20 @@ const { brl } = require("../../lib/helpers");
 
 const REGRAS = fs.readFileSync(path.join(__dirname, "prompt.md"), "utf8");
 
+// Calendario pronto dos proximos dias: sem ele o modelo erra a conta de "sexta" -> data
+// (em 13/10/2026, uma terca, respondeu "sexta-feira, dia 14/10").
+function proximosDias(hoje, quantidade = 14) {
+  const base = new Date(`${hoje}T12:00:00Z`);
+  const linhas = [];
+  for (let i = 0; i < quantidade; i++) {
+    const d = new Date(base.getTime() + i * 86400000);
+    const iso = d.toISOString().slice(0, 10);
+    const rotulo = i === 0 ? " (hoje)" : i === 1 ? " (amanha)" : "";
+    linhas.push(`- ${WEEKDAY_NAMES[d.getUTCDay()]} ${iso.slice(8, 10)}/${iso.slice(5, 7)} = ${iso}${rotulo}`);
+  }
+  return linhas.join("\n");
+}
+
 function buildSystemPrompt({ tenant, config, cliente }) {
   const hoje = todayStr(tenant.timezone);
   return [
@@ -19,6 +33,8 @@ function buildSystemPrompt({ tenant, config, cliente }) {
     `Tom de voz: ${config.personaTom}.`,
     `Forma de se apresentar: ${config.personaApresentacao}`,
     `Hoje e ${WEEKDAY_NAMES[zonedParts(new Date(), tenant.timezone).weekday]}, ${formatDateBr(new Date(), tenant.timezone)} (${hoje}). Fuso: ${tenant.timezone}.`,
+    "Calendario dos proximos dias (use esta lista para converter dia da semana em data; nunca calcule por conta propria):",
+    proximosDias(hoje),
     cliente
       ? `Cliente identificado pelo telefone: ${cliente.nome}.`
       : "Cliente ainda nao cadastrado. Nao peca o nome para mandar o link do site nem para informar servicos e precos; so pergunte o nome se ele preferir agendar pela conversa.",
@@ -134,29 +150,44 @@ function buildTools(ctx) {
       schema: z.object({
         servico_ids: z.array(z.string()).min(1).describe("Ids (ou nomes exatos) dos servicos escolhidos, na ordem"),
         profissional_id: z.string().optional().describe("Id do profissional, se o cliente escolheu"),
-        data: z.string().optional().describe("Data AAAA-MM-DD"),
+        data: z.string().optional().describe("Data AAAA-MM-DD. Se o cliente citou um dia (ex.: sexta), passe a data tirada do calendario do prompt"),
+        periodo: z.enum(["manha", "tarde", "noite"]).optional().describe("Se o cliente pediu um periodo: manha (antes das 12:00), tarde (12:00 a 17:59), noite (18:00 em diante)"),
       }),
       handler: async (entrada) => {
         const servico_ids = await idsDeServicos(entrada.servico_ids);
         const profissional_id = await idDeProfissional(entrada.profissional_id);
-        const { data } = entrada;
+        const { data, periodo } = entrada;
+        // Filtro no sistema: so a regra no prompt nao bastou (pedido "sexta a tarde" voltava com 09:00).
+        const noPeriodo = (h) => {
+          if (!periodo) return true;
+          const hora = Number(String(h).slice(0, 2));
+          return periodo === "manha" ? hora < 12 : periodo === "tarde" ? hora >= 12 && hora < 18 : hora >= 18;
+        };
         if (data) {
           const r = await disponibilidade.listarHorarios({ tenantId, servicoIds: servico_ids, profissionalId: profissional_id, data });
           return {
             ok: true,
             data,
+            diaSemana: WEEKDAY_NAMES[new Date(`${data}T12:00:00Z`).getUTCDay()],
             duracaoTotalMin: r.duracao.ocupacaoTotal,
-            profissionais: r.profissionais.map((p) => ({ id: p.profissionalId, nome: p.nome, horarios: p.horarios })),
+            periodo: periodo || null,
+            profissionais: r.profissionais.map((p) => ({ id: p.profissionalId, nome: p.nome, horarios: p.horarios.filter(noPeriodo) })),
           };
         }
-        const dias = await disponibilidade.proximosDiasDisponiveis({ tenantId, servicoIds: servico_ids, profissionalId: profissional_id, dias: 21, maxResultados: 5 });
+        const dias = await disponibilidade.proximosDiasDisponiveis({ tenantId, servicoIds: servico_ids, profissionalId: profissional_id, dias: 21, maxResultados: periodo ? 10 : 5 });
         return {
           ok: true,
-          dias: dias.map((d) => ({
-            data: d.data,
-            diaSemana: WEEKDAY_NAMES[new Date(`${d.data}T12:00:00Z`).getUTCDay()],
-            profissionais: d.profissionais.map((p) => ({ id: p.profissionalId, nome: p.nome, horarios: p.horarios.slice(0, 8) })),
-          })),
+          periodo: periodo || null,
+          dias: dias
+            .map((d) => ({
+              data: d.data,
+              diaSemana: WEEKDAY_NAMES[new Date(`${d.data}T12:00:00Z`).getUTCDay()],
+              profissionais: d.profissionais
+                .map((p) => ({ id: p.profissionalId, nome: p.nome, horarios: p.horarios.filter(noPeriodo).slice(0, 8) }))
+                .filter((p) => p.horarios.length > 0),
+            }))
+            .filter((d) => d.profissionais.length > 0)
+            .slice(0, 5),
         };
       },
     },

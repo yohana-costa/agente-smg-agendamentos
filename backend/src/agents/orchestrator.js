@@ -96,12 +96,14 @@ function formatoWhatsApp(texto) {
     .replace(/^#{1,6}\s+/gm, "");
 }
 
+// No maximo 4 mensagens no WhatsApp. O que passa disso vai junto na ultima: cortar fazia
+// sumir o fim da resposta (inclusive o link do site que o sistema acrescenta no final).
 function quebrarMensagem(texto) {
-  return formatoWhatsApp(texto)
+  const partes = formatoWhatsApp(texto)
     .split(/\n{2,}/)
     .map((p) => p.trim())
-    .filter(Boolean)
-    .slice(0, 4);
+    .filter(Boolean);
+  return partes.length <= 4 ? partes : [...partes.slice(0, 3), partes.slice(3).join("\n\n")];
 }
 
 async function historico(conversaId) {
