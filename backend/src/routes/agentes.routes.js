@@ -27,9 +27,9 @@ router.get(
     const config = await getAgenteConfig(tenantId);
     const numeros = await prisma.numeroAutorizado.findMany({ where: { tenantId }, orderBy: { nome: "asc" } });
     return ok(res, {
-      config: { ...config, webhookToken: undefined, whatsappConfig: mascarar(config) },
+      config: { ...config, webhookToken: undefined, openaiApiKey: undefined, openaiApiKeyConfigurada: Boolean(config.openaiApiKey), whatsappConfig: mascarar(config) },
       whatsappConectado: conexaoConfigurada(config),
-      iaDisponivel: Boolean(env.openaiApiKey),
+      iaDisponivel: Boolean(config.openaiApiKey || env.openaiApiKey),
       webhook: webhookUrls(tenant, config),
       numerosAutorizados: numeros,
       modulos: MODULOS,
@@ -53,7 +53,7 @@ router.patch(
     if (b.tempoRetornoMin !== undefined) data.tempoRetornoMin = toInt(b.tempoRetornoMin, 15, { min: 1, max: 1440 });
     if (b.gestaoAtivo !== undefined) data.gestaoAtivo = toBool(b.gestaoAtivo);
     const config = await prisma.agenteConfig.update({ where: { tenantId: req.auth.tenantId }, data });
-    return ok(res, { ...config, webhookToken: undefined, whatsappConfig: mascarar(config) });
+    return ok(res, { ...config, webhookToken: undefined, openaiApiKey: undefined, openaiApiKeyConfigurada: Boolean(config.openaiApiKey), whatsappConfig: mascarar(config) });
   })
 );
 
@@ -75,7 +75,7 @@ router.patch(
       where: { tenantId: req.auth.tenantId },
       data: { whatsappProvider: provider, whatsappNumero: b.whatsappNumero !== undefined ? normalizePhone(b.whatsappNumero) || null : atual.whatsappNumero, whatsappConfig: novo },
     });
-    return ok(res, { ...config, webhookToken: undefined, whatsappConfig: mascarar(config), whatsappConectado: conexaoConfigurada(config) });
+    return ok(res, { ...config, webhookToken: undefined, openaiApiKey: undefined, openaiApiKeyConfigurada: Boolean(config.openaiApiKey), whatsappConfig: mascarar(config), whatsappConectado: conexaoConfigurada(config) });
   })
 );
 

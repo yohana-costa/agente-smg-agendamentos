@@ -144,6 +144,7 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
         history: await historico(conversaId),
         tools: atendimentoAgent.buildTools(ctx),
         shouldStop: () => Boolean(ctx.escalonamento),
+        apiKey: config.openaiApiKey,
       });
       if (ctx.cliente && !conversa.clienteId) await prisma.conversa.update({ where: { id: conversaId }, data: { clienteId: ctx.cliente.id } });
       if (ctx.escalonamento) {
@@ -177,6 +178,7 @@ Se preferir, agende direto pelo site: ${linkSite}`;
       systemPrompt: gestaoAgent.buildSystemPrompt({ tenant, autorizado, ferramentas: tools.map((t) => t.name) }),
       history: await historico(conversaId),
       tools,
+      apiKey: config.openaiApiKey,
     });
     for (const parte of quebrarMensagem(r.text)) await enviarTexto(tenant.id, conversa.telefone, parte, enviarOpts);
     return { texto: r.text, usedTools: r.usedTools };

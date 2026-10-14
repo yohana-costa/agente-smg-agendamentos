@@ -711,6 +711,9 @@ model AgenteConfig {
   whatsappConfig   Json    @default("{}") // { baseUrl, instanceToken, webhookSecret } | { accessToken, phoneNumberId, verifyToken, appSecret }
   // Token obrigatorio na URL do webhook (?token=): sem ele qualquer um poderia simular mensagens
   // e fazer o agente responder numeros aleatorios gastando WhatsApp e OpenAI do estabelecimento.
+  // Chave OpenAI do proprio estabelecimento (vazia = usa a OPENAI_API_KEY da plataforma).
+  // Nunca volta para o front: as rotas devolvem so openaiApiKeyConfigurada.
+  openaiApiKey         String?
   webhookToken     String?
 
   // Agente de Atendimento

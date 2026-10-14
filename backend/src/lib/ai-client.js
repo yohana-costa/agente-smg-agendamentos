@@ -24,12 +24,14 @@ function normalizeContent(content) {
  * history: [{ role: "user" | "assistant", content }]
  * shouldStop(): quando true apos uma tool, encerra o loop (ex.: escalonamento ja enviou a mensagem).
  */
-async function gerarResposta({ systemPrompt, history = [], tools = [], shouldStop }) {
-  if (!env.openaiApiKey) {
+// apiKey: chave do estabelecimento (AgenteConfig.openaiApiKey); sem ela, a da plataforma.
+async function gerarResposta({ systemPrompt, history = [], tools = [], shouldStop, apiKey }) {
+  const chave = String(apiKey || "").trim() || env.openaiApiKey;
+  if (!chave) {
     throw createAppError("OPENAI_API_KEY nao configurada: o agente de IA esta indisponivel.", 503);
   }
   const model = new ChatOpenAI({
-    apiKey: env.openaiApiKey,
+    apiKey: chave,
     model: env.openaiModel,
     temperature: 0.2,
     configuration: { baseURL: env.openaiBaseUrl },

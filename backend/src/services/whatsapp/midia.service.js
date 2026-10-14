@@ -16,8 +16,9 @@ function extensao(mimeType) {
   return "ogg";
 }
 
-async function transcrever(buffer, mimeType) {
-  if (!env.openaiApiKey) return null;
+async function transcrever(buffer, mimeType, apiKey) {
+  const chave = String(apiKey || "").trim() || env.openaiApiKey;
+  if (!chave) return null;
   const tipo = String(mimeType || "audio/ogg").split(";")[0];
   const form = new FormData();
   form.append("model", env.openaiTranscribeModel);
@@ -26,7 +27,7 @@ async function transcrever(buffer, mimeType) {
   // FormData/Blob nativos do Node 20 (axios 1.x envia direto, sem depender do pacote form-data)
   form.append("file", new Blob([buffer], { type: tipo }), `audio.${extensao(tipo)}`);
   const r = await axios.post(`${env.openaiBaseUrl.replace(/\/$/, "")}/audio/transcriptions`, form, {
-    headers: { Authorization: `Bearer ${env.openaiApiKey}` },
+    headers: { Authorization: `Bearer ${chave}` },
     timeout: 120000,
     maxBodyLength: Infinity,
     validateStatus: () => true,
@@ -49,7 +50,7 @@ async function textoDaMidia(config, evento) {
   try {
     const wc = config.whatsappConfig || {};
     const arquivo = evento.provider === "meta" ? await downloadMetaMedia(wc, id) : await downloadUazapiMedia(wc, id);
-    const texto = await transcrever(arquivo.buffer, arquivo.mimeType);
+    const texto = await transcrever(arquivo.buffer, arquivo.mimeType, config.openaiApiKey);
     return texto ? `[Áudio do cliente, transcrito]: ${texto}` : AUDIO_FALHOU;
   } catch (error) {
     log("midia", "audio_falhou", { provider: evento.provider, erro: error.message });
