@@ -116,6 +116,22 @@ async function historico(conversaId) {
     }));
 }
 
+// Celular brasileiro chega com ou sem o 9 depois do DDD (55 + DDD + 9 + 8 digitos).
+function variantesTelefone(telefone) {
+  const d = normalizePhone(telefone);
+  const v = new Set([d]);
+  if (/^55\d{2}9\d{8}$/.test(d)) v.add(d.slice(0, 4) + d.slice(5));
+  if (/^55\d{2}\d{8}$/.test(d)) v.add(d.slice(0, 4) + "9" + d.slice(4));
+  return v;
+}
+
+function liberadoNoModoTeste(config, telefone) {
+  const lista = config.numerosTesteIa || [];
+  if (lista.length === 0) return true;
+  const alvo = variantesTelefone(telefone);
+  return lista.some((n) => [...variantesTelefone(n)].some((x) => alvo.has(x)));
+}
+
 async function processarConversa(conversaId, { simulacao = false } = {}) {
   if (running.has(conversaId)) {
     agendar(conversaId, { simulacao });
@@ -131,6 +147,10 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
 
     if (conversa.canal === "ATENDIMENTO") {
       if (!config.atendimentoAtivo) return null;
+      if (!simulacao && !liberadoNoModoTeste(config, conversa.telefone)) {
+        log("agentes", "fora_do_modo_teste", { conversaId });
+        return null;
+      }
       if (pausaAtiva(conversa)) {
         log("agentes", "conversa_pausada", { conversaId });
         return null;

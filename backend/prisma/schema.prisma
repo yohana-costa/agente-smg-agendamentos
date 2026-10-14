@@ -714,6 +714,9 @@ model AgenteConfig {
   // Chave OpenAI do proprio estabelecimento (vazia = usa a OPENAI_API_KEY da plataforma).
   // Nunca volta para o front: as rotas devolvem so openaiApiKeyConfigurada.
   openaiApiKey         String?
+  // Modo teste do Agente de Atendimento: com numeros aqui, a IA so responde a eles (os demais
+  // continuam registrados, sem resposta). Vazio = responde a todos.
+  numerosTesteIa       String[]       @default([])
   webhookToken     String?
 
   // Agente de Atendimento
