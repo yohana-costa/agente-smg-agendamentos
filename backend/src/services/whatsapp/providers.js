@@ -130,6 +130,8 @@ function parseMeta(payload) {
           text,
           media,
           profileName: textOrEmpty(contacts?.[0]?.profile?.name),
+          // mensagem citada (responder segurando a mensagem): usada para casar a resposta da equipe
+          quotedId: textOrEmpty(message?.context?.id),
         });
       }
       // Mensagens enviadas pelo proprio numero via app (coexistencia) chegam como message_echoes.

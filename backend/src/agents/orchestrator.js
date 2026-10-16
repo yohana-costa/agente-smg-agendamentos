@@ -14,6 +14,7 @@ const { parseUazapi, parseMeta } = require("../services/whatsapp/providers");
 const { textoDaMidia } = require("../services/whatsapp/midia.service");
 const historicoCoex = require("../services/whatsapp/historico.service");
 const atendimentoAgent = require("./atendimento/agent");
+const gateway = require("../services/pagamentos/gateway");
 const gestaoAgent = require("./gestao/agent");
 
 const timers = new Map();
@@ -69,20 +70,67 @@ async function enviarMensagemHumano(conversaId, texto, usuarioNome) {
 
 // ---------- escalonamento ----------
 
-async function escalar(conversa, motivo, { tenant, config, simulacao = false }) {
-  await enviarTexto(tenant.id, conversa.telefone, config.mensagemEscalonamento, { autor: "AGENTE", simulacao });
-  if (config.numeroEscalonamento && !simulacao) {
+// Notas guardadas como mensagem SISTEMA que o agente le de outro jeito (ver historico()).
+const PREFIXO_AUTOMATICA = "[WhatsApp automatico] ";
+const PREFIXO_NOTA = "[Nota interna] ";
+
+const ROTULO_CONSULTA = { duvida: "Duvida", agendamento: "Pedido de horario", atendimento_humano: "Precisa de atendimento" };
+
+// consultar_equipe: a cliente recebe a mensagem natural escrita pelo agente ("Um minutinho, vou
+// confirmar isso com a doutora."), e a pergunta vai para o numero de escalonamento. Quando a
+// doutora responde citando essa mensagem, a resposta volta como nota interna e o agente segue
+// a conversa (ver responderConsulta).
+async function escalar(conversa, motivo, { tenant, config, simulacao = false, tipo = "atendimento_humano", mensagemCliente = null }) {
+  await enviarTexto(tenant.id, conversa.telefone, mensagemCliente || config.mensagemEscalonamento, { autor: "AGENTE", simulacao });
+  let consultaMsgId = null;
+  const destino = normalizePhone(config.numeroEscalonamento);
+  const mesmoNumero = destino && [...variantesTelefone(destino)].some((v) => variantesTelefone(config.whatsappNumero).has(v));
+  if (destino && mesmoNumero) log("agentes", "escalonamento_para_o_proprio_numero", { tenantId: tenant.id });
+  if (destino && !mesmoNumero && !simulacao) {
     const cliente = conversa.clienteId ? await prisma.cliente.findUnique({ where: { id: conversa.clienteId } }) : null;
     const nome = cliente?.nome || conversa.nomeContato || "Cliente";
-    await enviarTexto(
+    const r = await enviarTexto(
       tenant.id,
-      config.numeroEscalonamento,
-      `⚠️ Atendimento precisa de atencao humana.\nCliente: ${nome} (${conversa.telefone})\nMotivo: ${motivo}\nResponda pela aba Atendimento ou direto no WhatsApp.`,
+      destino,
+      `${ROTULO_CONSULTA[tipo] || "Atendimento"} de ${nome} (${conversa.telefone}):\n${motivo}\n\nResponda ESTA mensagem (segure e toque em Responder) que eu repasso para a cliente. Ou fale com ela direto pela aba Atendimento.`,
       { autor: "SISTEMA", registrar: false }
     );
+    consultaMsgId = r.externalId || null;
   }
   await pausar(conversa, { escalonar: true, motivo });
-  log("agentes", "escalonado", { conversaId: conversa.id, motivo });
+  if (consultaMsgId) await prisma.conversa.update({ where: { id: conversa.id }, data: { consultaMsgId } });
+  log("agentes", "escalonado", { conversaId: conversa.id, tipo, motivo });
+}
+
+// Resposta da equipe vinda do numero de escalonamento. Casa pela mensagem citada; sem citacao,
+// so se houver uma unica pergunta pendente. Devolve null quando a mensagem nao e resposta.
+async function responderConsulta(tenant, config, evento) {
+  const destino = normalizePhone(config.numeroEscalonamento);
+  if (!destino) return null;
+  const doEscalonamento = [...variantesTelefone(evento.contato)].some((v) => variantesTelefone(destino).has(v));
+  if (!doEscalonamento) return null;
+  const pendentes = await prisma.conversa.findMany({
+    where: { tenantId: tenant.id, canal: "ATENDIMENTO", escalonamentoPendente: true },
+    orderBy: { escalonadoEm: "desc" },
+  });
+  if (pendentes.length === 0) return null;
+  if (evento.media && !evento.text) evento.text = await textoDaMidia(config, evento);
+  if (!evento.text) return null;
+  let alvo = evento.quotedId ? pendentes.find((c) => c.consultaMsgId && c.consultaMsgId === evento.quotedId) : null;
+  if (!alvo && pendentes.length === 1) alvo = pendentes[0];
+  if (!alvo) {
+    await enviarTexto(tenant.id, destino, "Tem mais de uma pergunta esperando resposta. Responda segurando a mensagem da pergunta e tocando em Responder, para eu saber de qual cliente e.", {
+      autor: "SISTEMA",
+      registrar: false,
+    });
+    return { ignorado: "consulta_ambigua" };
+  }
+  await registrarMensagem(alvo, { autor: "SISTEMA", texto: `${PREFIXO_NOTA}Resposta da equipe: ${evento.text}` });
+  await prisma.conversa.update({ where: { id: alvo.id }, data: { escalonamentoPendente: false, consultaMsgId: null } });
+  await devolverAoAgente(alvo.id);
+  log("agentes", "consulta_respondida", { conversaId: alvo.id });
+  processarConversa(alvo.id).catch(() => {});
+  return { consultaRespondida: alvo.id };
 }
 
 // ---------- processamento ----------
@@ -106,14 +154,59 @@ function quebrarMensagem(texto) {
   return partes.length <= 4 ? partes : [...partes.slice(0, 3), partes.slice(3).join("\n\n")];
 }
 
+// Frases de encerramento prontas que o modelo insiste em usar mesmo proibidas no prompt
+// (teste de 15/10/2026). A frase inteira sai; se sobrar nada, nada e enviado.
+const FRASES_PRONTAS = [
+  /se precisar de (mais )?(alguma coisa|algo|mais alguma|ajuda|outra)/i,
+  /(estou|fico|sigo|estamos|ficamos) (a|à) (sua )?disposi/i,
+  /(é|e) s(ó|o) (me )?(chamar|avisar|falar|mandar mensagem)/i,
+  /tenha um (ótimo|otimo|excelente|bom|lindo) (dia|tarde|fim)/i,
+  /fico (muito )?feliz em (te )?ajudar/i,
+  /ser(á|a) um prazer (te )?(atender|receber)/i,
+  /qualquer (d(ú|u)vida|coisa),? (é|e) s(ó|o)/i,
+];
+
+function limparFrasesProntas(texto) {
+  let emojis = 0;
+  const paragrafos = String(texto || "")
+    .split(/\n{2,}/)
+    .map((par) =>
+      par
+        .split("\n")
+        .map((linha) =>
+          linha
+            .split(/(?<=[.!?])\s+/)
+            .filter((frase) => !FRASES_PRONTAS.some((re) => re.test(frase)))
+            .join(" ")
+        )
+        .filter((linha) => linha.trim())
+        .join("\n")
+    )
+    .filter((par) => par.trim());
+  // no maximo 1 emoji por resposta
+  return paragrafos
+    .join("\n\n")
+    .replace(/\p{Extended_Pictographic}\uFE0F?/gu, (e) => (++emojis > 1 ? "" : e))
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/ {2,}/g, " ")
+    .trim();
+}
+
 async function historico(conversaId) {
   const msgs = await prisma.mensagem.findMany({ where: { conversaId }, orderBy: { createdAt: "desc" }, take: env.agentHistoryLimit });
-  return msgs
-    .reverse()
-    .map((m) => ({
+  return msgs.reverse().map((m) => {
+    const texto = String(m.texto || "");
+    if (m.autor === "SISTEMA" && texto.startsWith(PREFIXO_NOTA)) {
+      return { role: "system", content: `Nota interna (a cliente NAO viu; repasse com suas palavras): ${texto.slice(PREFIXO_NOTA.length)}` };
+    }
+    if (m.autor === "SISTEMA" && texto.startsWith(PREFIXO_AUTOMATICA)) {
+      return { role: "system", content: `Mensagem automatica do WhatsApp do estabelecimento, ja recebida pela cliente (nao repita o conteudo): ${texto.slice(PREFIXO_AUTOMATICA.length)}` };
+    }
+    return {
       role: m.autor === "CLIENTE" ? "user" : "assistant",
-      content: m.autor === "HUMANO" ? `[Atendente humano]: ${m.texto}` : m.autor === "SISTEMA" ? `[Mensagem automatica do sistema]: ${m.texto}` : m.texto,
-    }));
+      content: m.autor === "HUMANO" ? `[Atendente humano]: ${texto}` : m.autor === "SISTEMA" ? `[Mensagem automatica do sistema]: ${texto}` : texto,
+    };
+  });
 }
 
 // Celular brasileiro chega com ou sem o 9 depois do DDD (55 + DDD + 9 + 8 digitos).
@@ -157,33 +250,45 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
       }
       if (conversa.status !== "ATIVO") await devolverAoAgente(conversaId);
 
-      const ctx = { tenant, config, telefone: conversa.telefone, cliente: null, escalonamento: null };
+      // Sem Mercado Pago o cliente nao conclui agendamento (nem pelo site): o agente leva o pedido
+      // para a equipe em vez de mandar link. O link so vai quando faz sentido e uma vez so (o
+      // "link forcado" em toda resposta foi retirado a pedido do estabelecimento, 16/10/2026).
+      const linkSite = `${env.publicAppUrl}/s/${tenant.slug}`;
+      const pagamentoDisponivel = gateway.modo(tenant) !== "desconectado";
+      const linkJaEnviado = Boolean(
+        await prisma.mensagem.findFirst({ where: { conversaId, autor: { not: "CLIENTE" }, texto: { contains: linkSite } }, select: { id: true } })
+      );
+      const ultimaDaCliente = await prisma.mensagem.findFirst({ where: { conversaId, autor: "CLIENTE" }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+
+      const ctx = { tenant, config, telefone: conversa.telefone, cliente: null, escalonamento: null, pagamentoDisponivel };
       ctx.cliente = conversa.clienteId ? await prisma.cliente.findUnique({ where: { id: conversa.clienteId } }) : null;
       const r = await gerarResposta({
-        systemPrompt: atendimentoAgent.buildSystemPrompt({ tenant, config, cliente: ctx.cliente }),
+        systemPrompt: atendimentoAgent.buildSystemPrompt({ tenant, config, cliente: ctx.cliente, pagamentoDisponivel, linkJaEnviado }),
         history: await historico(conversaId),
         tools: atendimentoAgent.buildTools(ctx),
         shouldStop: () => Boolean(ctx.escalonamento),
         apiKey: config.openaiApiKey,
+        model: config.openaiModel,
       });
       if (ctx.cliente && !conversa.clienteId) await prisma.conversa.update({ where: { id: conversaId }, data: { clienteId: ctx.cliente.id } });
+
+      // A cliente mandou outra mensagem enquanto a resposta era gerada: essa resposta ja nasceu
+      // velha (ex.: "De nada, tenha um otimo dia" depois de ela perguntar outra coisa). Descarta e
+      // responde tudo junto na proxima rodada. So nao descarta se uma ferramenta ja mudou algo.
+      const mudouAlgo = (r.usedTools || []).some((t) => t.ok && ["criar_agendamento", "cancelar_agendamento", "reagendar_agendamento"].includes(t.name));
+      if (!simulacao && !mudouAlgo && !ctx.escalonamento && ultimaDaCliente) {
+        const nova = await prisma.mensagem.findFirst({ where: { conversaId, autor: "CLIENTE", createdAt: { gt: ultimaDaCliente.createdAt } }, select: { id: true } });
+        if (nova) {
+          log("agentes", "resposta_descartada_nova_mensagem", { conversaId });
+          agendar(conversaId);
+          return { descartada: true };
+        }
+      }
       if (ctx.escalonamento) {
-        await escalar(conversa, ctx.escalonamento.motivo, { tenant, config, simulacao });
+        await escalar(conversa, ctx.escalonamento.motivo, { tenant, config, simulacao, tipo: ctx.escalonamento.tipo, mensagemCliente: ctx.escalonamento.mensagemCliente });
         return { escalonado: true, motivo: ctx.escalonamento.motivo, usedTools: r.usedTools };
       }
-      // Documento de agentes 2.2: quem quer agendar recebe PRIMEIRO o link do site. O modelo nem
-      // sempre obedece, entao o sistema garante: se o cliente falou em agendar e o link ainda nao
-      // apareceu na conversa, ele vai junto desta resposta.
-      let texto = r.text;
-      const linkSite = `${env.publicAppUrl}/s/${tenant.slug}`;
-      if (!String(texto || "").includes(linkSite)) {
-        const ultimas = await prisma.mensagem.findMany({ where: { conversaId }, orderBy: { createdAt: "desc" }, take: 30, select: { autor: true, texto: true } });
-        const querAgendar = ultimas.some((m) => m.autor === "CLIENTE" && /agend|marcar|marca[cç]|hor[aá]rio|vaga/i.test(m.texto || ""));
-        const linkJaEnviado = ultimas.some((m) => m.autor !== "CLIENTE" && String(m.texto || "").includes(linkSite));
-        if (querAgendar && !linkJaEnviado) texto = `${texto}
-
-Se preferir, agende direto pelo site: ${linkSite}`;
-      }
+      const texto = limparFrasesProntas(r.text);
       for (const parte of quebrarMensagem(texto)) await enviarTexto(tenant.id, conversa.telefone, parte, enviarOpts);
       return { texto, usedTools: r.usedTools };
     }
@@ -199,6 +304,7 @@ Se preferir, agende direto pelo site: ${linkSite}`;
       history: await historico(conversaId),
       tools,
       apiKey: config.openaiApiKey,
+      model: config.openaiModel,
     });
     for (const parte of quebrarMensagem(r.text)) await enviarTexto(tenant.id, conversa.telefone, parte, enviarOpts);
     return { texto: r.text, usedTools: r.usedTools };
@@ -236,9 +342,37 @@ async function mensagemPropria(conversa, evento) {
   return Boolean(recente);
 }
 
+// Saudacao e mensagem de ausencia do WhatsApp Business saem do celular sozinhas, segundos depois da
+// mensagem da cliente, e chegavam como "humano respondeu": pausavam a IA e a cliente ficava sem
+// resposta (teste de 15/10/2026). Automatica = ate 15s depois da cliente, ou ate 2 min se o mesmo
+// texto ja saiu do celular em outra conversa.
+async function ehMensagemAutomaticaDoCelular(conversa, texto) {
+  const ultimaDaCliente = await prisma.mensagem.findFirst({ where: { conversaId: conversa.id, autor: "CLIENTE" }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+  if (!ultimaDaCliente) return false;
+  const segundos = (Date.now() - new Date(ultimaDaCliente.createdAt).getTime()) / 1000;
+  if (segundos <= 15) return true;
+  if (segundos > 120) return false;
+  const repetida = await prisma.mensagem.findFirst({
+    where: {
+      conversa: { tenantId: conversa.tenantId },
+      conversaId: { not: conversa.id },
+      autor: { in: ["HUMANO", "SISTEMA"] },
+      texto: { in: [texto, `${PREFIXO_AUTOMATICA}${texto}`] },
+    },
+    select: { id: true },
+  });
+  return Boolean(repetida);
+}
+
 async function processarEvento(tenant, config, evento) {
   if (evento.isGroup || !evento.contato) return { ignorado: "grupo_ou_sem_contato" };
   const contato = normalizePhone(evento.contato);
+
+  // Resposta da doutora/equipe a uma pergunta do agente (consultar_equipe)
+  if (!evento.fromMe) {
+    const consulta = await responderConsulta(tenant, config, evento);
+    if (consulta) return consulta;
+  }
   const autorizado = config.gestaoAtivo
     ? await prisma.numeroAutorizado.findUnique({ where: { tenantId_telefone: { tenantId: tenant.id, telefone: contato } } })
     : null;
@@ -247,6 +381,10 @@ async function processarEvento(tenant, config, evento) {
 
   if (evento.fromMe) {
     if (!evento.text || (await mensagemPropria(conversa, evento))) return { ignorado: "eco" };
+    if (await ehMensagemAutomaticaDoCelular(conversa, evento.text)) {
+      await registrarMensagem(conversa, { autor: "SISTEMA", texto: `${PREFIXO_AUTOMATICA}${evento.text}`, externalId: evento.messageId || null });
+      return { automatica: true };
+    }
     // humano respondeu direto pelo WhatsApp: registra e pausa o agente nesta conversa
     await registrarMensagem(conversa, { autor: "HUMANO", texto: evento.text, externalId: evento.messageId || null });
     await pausar(conversa);

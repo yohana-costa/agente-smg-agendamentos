@@ -714,6 +714,8 @@ model AgenteConfig {
   // Chave OpenAI do proprio estabelecimento (vazia = usa a OPENAI_API_KEY da plataforma).
   // Nunca volta para o front: as rotas devolvem so openaiApiKeyConfigurada.
   openaiApiKey         String?
+  // Modelo do estabelecimento (vazio = OPENAI_MODEL da plataforma). Faz sentido junto da chave propria.
+  openaiModel          String?
   // Modo teste do Agente de Atendimento: com numeros aqui, a IA so responde a eles (os demais
   // continuam registrados, sem resposta). Vazio = responde a todos.
   numerosTesteIa       String[]       @default([])
@@ -764,6 +766,9 @@ model Conversa {
   escalonamentoPendente Boolean       @default(false)
   motivoEscalonamento  String?
   escalonadoEm         DateTime?
+  // wamid da pergunta mandada ao numero de escalonamento (consultar_equipe): quando a doutora
+  // responde citando essa mensagem, a resposta volta para esta conversa.
+  consultaMsgId        String?
   ultimaMensagemEm     DateTime       @default(now())
   createdAt            DateTime       @default(now())
 

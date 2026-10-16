@@ -71,7 +71,8 @@ const env = {
   openaiBaseUrl: text(process.env.OPENAI_BASE_URL, "https://api.openai.com/v1"),
   // Transcricao dos audios recebidos no WhatsApp (mesmo modelo do Gestor SMG varejo)
   openaiTranscribeModel: text(process.env.OPENAI_TRANSCRIBE_MODEL, "gpt-4o-mini-transcribe"),
-  agentBufferSeconds: int(process.env.AGENT_BUFFER_SECONDS, 6, { min: 0, max: 60 }),
+  // Espera por mensagens seguidas da cliente antes de responder (todas viram uma resposta so).
+  agentBufferSeconds: int(process.env.AGENT_BUFFER_SECONDS, 10, { min: 0, max: 60 }),
   agentHistoryLimit: int(process.env.AGENT_HISTORY_LIMIT, 30, { min: 4, max: 200 }),
 
   // WhatsApp (padroes; credenciais ficam por estabelecimento em AgenteConfig.whatsappConfig)

@@ -25,15 +25,19 @@ function normalizeContent(content) {
  * shouldStop(): quando true apos uma tool, encerra o loop (ex.: escalonamento ja enviou a mensagem).
  */
 // apiKey: chave do estabelecimento (AgenteConfig.openaiApiKey); sem ela, a da plataforma.
-async function gerarResposta({ systemPrompt, history = [], tools = [], shouldStop, apiKey }) {
+// model: modelo do estabelecimento (AgenteConfig.openaiModel); sem ele, o da plataforma.
+async function gerarResposta({ systemPrompt, history = [], tools = [], shouldStop, apiKey, model: modelo }) {
   const chave = String(apiKey || "").trim() || env.openaiApiKey;
   if (!chave) {
     throw createAppError("OPENAI_API_KEY nao configurada: o agente de IA esta indisponivel.", 503);
   }
+  const nomeModelo = String(modelo || "").trim() || env.openaiModel;
+  // Modelos de raciocinio (gpt-5*, o*) recusam temperature diferente do padrao.
+  const raciocinio = /^(gpt-5|o\d)/.test(nomeModelo);
   const model = new ChatOpenAI({
     apiKey: chave,
-    model: env.openaiModel,
-    temperature: 0.2,
+    model: nomeModelo,
+    ...(raciocinio ? {} : { temperature: 0.2 }),
     configuration: { baseURL: env.openaiBaseUrl },
   });
 
@@ -61,7 +65,9 @@ async function gerarResposta({ systemPrompt, history = [], tools = [], shouldSto
 
   const messages = [
     new SystemMessage(systemPrompt),
-    ...history.map((m) => (m.role === "assistant" ? new AIMessage(m.content) : new HumanMessage(m.content))),
+    ...history.map((m) =>
+      m.role === "assistant" ? new AIMessage(m.content) : m.role === "system" ? new SystemMessage(m.content) : new HumanMessage(m.content)
+    ),
   ];
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
