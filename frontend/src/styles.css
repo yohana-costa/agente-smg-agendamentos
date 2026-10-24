@@ -301,3 +301,44 @@ input[type='date'], input[type='time'], input[type='color'] { color-scheme: dark
   .modal-backdrop { padding: 0; }
   .modal { max-height: 100vh; border-radius: 0; min-height: 100vh; }
 }
+
+/* Celular e tablet pequeno: abas quebram linha em vez de sumir para a direita. */
+@media (max-width: 900px) {
+  .tabs { display: flex; flex-wrap: wrap; overflow-x: visible; }
+  .tab { padding: 7px 12px; }
+}
+
+/* Celular: cada linha de tabela vira um cartao, com o nome da coluna ao lado do valor.
+   O nome vem do data-label que lib/tabela-responsiva.ts copia do cabecalho. */
+@media (max-width: 900px) {
+  .table-wrap { overflow-x: visible; border: 0; background: transparent; border-radius: 0; }
+  .table, .table tbody, .table tfoot, .table tr, .table td { display: block; width: 100%; }
+  .table thead { display: none; }
+  .table tr {
+    border: 1px solid hsl(var(--border)); border-radius: 0.9rem; background: hsl(var(--card));
+    padding: 6px 14px; margin-bottom: 10px;
+  }
+  .table tr:last-child { margin-bottom: 0; }
+  .table td {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 9px 0; border-bottom: 1px solid hsl(var(--border) / 0.6); text-align: right;
+    min-width: 0; overflow-wrap: anywhere; white-space: normal !important;
+  }
+  .table tr td:last-child { border-bottom: 0; }
+  .table td::before {
+    content: attr(data-label); flex-shrink: 0; max-width: 45%; text-align: left;
+    font-size: 12px; font-weight: 500; color: hsl(var(--muted-foreground));
+  }
+  /* sem nome de coluna (acoes, titulo) ou linha que ocupa a tabela toda: sem rotulo */
+  .table td:not([data-label])::before, .table td[data-label=""]::before, .table td[colspan]::before { content: none; }
+  .table td:not([data-label]), .table td[data-label=""] { justify-content: flex-end; }
+  .table td[colspan] { justify-content: center; text-align: center; }
+  .table td > * { min-width: 0; }
+  /* primeira coluna (nome do cliente, servico, data...) vira o titulo do cartao */
+  .table td:first-child:not([colspan]) { display: block; text-align: left; padding-top: 10px; }
+  .table td:first-child::before { content: none; }
+  .table td .btn { white-space: normal; text-align: center; }
+  .table tbody tr:hover td, .table tr.clickable:hover td { background: transparent; }
+  .table tr.clickable:active { background: hsl(var(--primary) / 0.06); }
+  .table tfoot td { background: transparent; }
+}

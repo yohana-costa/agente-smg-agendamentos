@@ -4,8 +4,11 @@ import './styles.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { ligarTabelaResponsiva } from './lib/tabela-responsiva'
 import { AuthProvider } from './lib/auth'
 import { ThemeProvider } from './lib/theme'
+
+ligarTabelaResponsiva()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

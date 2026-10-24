@@ -87,7 +87,9 @@
 .at-back { display: none; }
 
 @media (max-width: 900px) {
-  .at-layout { grid-template-columns: 1fr; height: calc(100vh - 140px); }
+  /* minmax(0, 1fr): sem ele a coluna crescia ate caber o texto das conversas (724px no celular) */
+  .at-layout { grid-template-columns: minmax(0, 1fr); height: calc(100vh - 210px); height: calc(100dvh - 210px); min-height: 420px; }
+  .at-sidebar, .at-chat { min-width: 0; }
   .at-layout.has-open .at-sidebar { display: none; }
   .at-layout:not(.has-open) .at-chat { display: none; }
   .at-back { display: inline-flex; }
