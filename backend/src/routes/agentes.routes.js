@@ -47,7 +47,9 @@ router.patch(
     if (b.personaNome !== undefined) data.personaNome = requireText(b.personaNome, "Nome da persona");
     if (b.personaTom !== undefined) data.personaTom = textOrEmpty(b.personaTom);
     if (b.personaApresentacao !== undefined) data.personaApresentacao = textOrEmpty(b.personaApresentacao);
-    if (b.informacoesNegocio !== undefined) data.informacoesNegocio = String(b.informacoesNegocio || "").slice(0, 20000);
+    // Sem limite pratico de tamanho (o estabelecimento cola prompts grandes). O teto de 500 mil
+    // caracteres so evita um colar acidental gigante: o texto vai inteiro em toda resposta da IA.
+    if (b.informacoesNegocio !== undefined) data.informacoesNegocio = String(b.informacoesNegocio || "").slice(0, 500000);
     if (b.mensagemEscalonamento !== undefined) data.mensagemEscalonamento = requireText(b.mensagemEscalonamento, "Mensagem de escalonamento");
     if (b.numeroEscalonamento !== undefined) data.numeroEscalonamento = b.numeroEscalonamento ? requirePhone(b.numeroEscalonamento) : null;
     if (b.tempoRetornoMin !== undefined) data.tempoRetornoMin = toInt(b.tempoRetornoMin, 15, { min: 1, max: 1440 });

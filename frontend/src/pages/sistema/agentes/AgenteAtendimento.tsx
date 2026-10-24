@@ -125,9 +125,8 @@ export function AgenteAtendimento({ dados, onConfig, irPara }: { dados: AgentesD
               value={form.informacoesNegocio}
               onChange={(e) => set('informacoesNegocio', e.target.value)}
               placeholder={'Ex.:\n- Estacionamento conveniado na rua de trás.\n- Aceitamos Pix e cartão pelo link de pagamento.\n- Atendemos crianças a partir de 5 anos.'}
-              maxLength={20000}
             />
-            <div className="field-hint right">{form.informacoesNegocio.length.toLocaleString('pt-BR')} / 20.000 caracteres</div>
+            <div className="field-hint right">{form.informacoesNegocio.length.toLocaleString('pt-BR')} caracteres</div>
           </Card>
 
           <Card title="Escalonamento para humano" subtitle="Quando o agente não tem a informação ou o assunto foge do agendamento.">
