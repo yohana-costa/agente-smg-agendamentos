@@ -346,10 +346,29 @@ async function mensagemPropria(conversa, evento) {
 // mensagem da cliente, e chegavam como "humano respondeu": pausavam a IA e a cliente ficava sem
 // resposta (teste de 15/10/2026). Automatica = ate 15s depois da cliente, ou ate 2 min se o mesmo
 // texto ja saiu do celular em outra conversa.
+// 26/10/2026: depois da VPS voltar, a Datafy entregou a mensagem da cliente e a de ausencia no
+// mesmo segundo; a de ausencia foi processada antes de a da cliente ser gravada, virou "humano" e
+// pausou a IA. Por isso: (1) texto ja reconhecido como automatico vale sempre; (2) sem mensagem
+// recente da cliente, espera ate 5s por ela antes de decidir.
 async function ehMensagemAutomaticaDoCelular(conversa, texto) {
-  const ultimaDaCliente = await prisma.mensagem.findFirst({ where: { conversaId: conversa.id, autor: "CLIENTE" }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
-  if (!ultimaDaCliente) return false;
-  const segundos = (Date.now() - new Date(ultimaDaCliente.createdAt).getTime()) / 1000;
+  // Saudacao e ausencia do WhatsApp Business sao textos longos e prontos. Resposta curta e humana
+  // ("Marcado", "Ta bom") tambem sai rapido e se repete, e era confundida com automatica.
+  if (String(texto || "").trim().length < 60) return false;
+  const jaConhecida = await prisma.mensagem.findFirst({
+    where: { conversa: { tenantId: conversa.tenantId }, autor: "SISTEMA", texto: `${PREFIXO_AUTOMATICA}${texto}` },
+    select: { id: true },
+  });
+  if (jaConhecida) return true;
+
+  const segundosDesdeACliente = async () => {
+    const ultima = await prisma.mensagem.findFirst({ where: { conversaId: conversa.id, autor: "CLIENTE" }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+    return ultima ? (Date.now() - new Date(ultima.createdAt).getTime()) / 1000 : Infinity;
+  };
+  let segundos = await segundosDesdeACliente();
+  for (let i = 0; i < 5 && segundos > 120; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    segundos = await segundosDesdeACliente();
+  }
   if (segundos <= 15) return true;
   if (segundos > 120) return false;
   const repetida = await prisma.mensagem.findFirst({
