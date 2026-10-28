@@ -21,6 +21,7 @@ router.use("/agenda", requireAuth, requireAba("agenda"), require("./agenda.route
 router.use("/clientes", requireAuth, requireAba("clientes"), require("./clientes.routes"));
 router.use("/servicos", requireAuth, require("./servicos.routes"));
 router.use("/produtos", requireAuth, require("./produtos.routes"));
+router.use("/materiais", requireAuth, require("./materiais.routes"));
 router.use("/pacotes", requireAuth, require("./pacotes.routes"));
 router.use("/equipe", requireAuth, require("./equipe.routes"));
 router.use("/financeiro", requireAuth, requireAba("financeiro"), require("./financeiro.routes"));

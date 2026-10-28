@@ -215,6 +215,7 @@ model Tenant {
   automacaoEnvios AutomacaoEnvio[]
   codigosVerificacao CodigoVerificacao[]
   whatsappHistoricoBruto WhatsappHistoricoBruto[]
+  materiais              Material[]
 }
 
 model Usuario {
@@ -957,4 +958,42 @@ model PacoteClienteSaldo {
 
   @@index([pacoteClienteId])
   @@index([servicoId])
+}
+
+// Materiais de uso interno (ferramentas, descartaveis, insumos): estoque separado dos produtos
+// que o estabelecimento vende. Nao aparece no site, nas vendas nem para a IA.
+model Material {
+  id         String   @id @default(cuid())
+  tenantId   String
+  nome       String
+  unidade    String   @default("un")
+  quantidade Float    @default(0)
+  minimo     Float    @default(0)
+  custo      Int      @default(0) // centavos por unidade
+  observacao String?
+  ativo      Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  movimentos MaterialMovimento[]
+
+  @@index([tenantId])
+}
+
+model MaterialMovimento {
+  id          String   @id @default(cuid())
+  tenantId    String
+  materialId  String
+  tipo        String // ENTRADA | SAIDA | CORRECAO
+  quantidade  Float // ENTRADA/SAIDA: quanto entrou/saiu; CORRECAO: a quantidade contada
+  saldo       Float // quantidade do material depois do movimento
+  observacao  String?
+  usuarioNome String?
+  createdAt   DateTime @default(now())
+
+  material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@index([materialId, createdAt])
+  @@index([tenantId])
 }
