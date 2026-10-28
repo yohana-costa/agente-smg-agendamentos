@@ -216,6 +216,7 @@ model Tenant {
   codigosVerificacao CodigoVerificacao[]
   whatsappHistoricoBruto WhatsappHistoricoBruto[]
   materiais              Material[]
+  alertas                Alerta[]
 }
 
 model Usuario {
@@ -720,6 +721,11 @@ model AgenteConfig {
   // Modo teste do Agente de Atendimento: com numeros aqui, a IA so responde a eles (os demais
   // continuam registrados, sem resposta). Vazio = responde a todos.
   numerosTesteIa       String[]       @default([])
+  // Assistente pessoal (alertas para a dona/equipe pelo WhatsApp conectado, ver alertas.service)
+  alertasNumeros       String[]       @default([])
+  alertasTipos         String[]       @default(["NOVO_AGENDAMENTO", "CANCELAMENTO", "EQUIPE", "RESUMO_DIARIO"])
+  alertasHoraResumo    String         @default("08:00")
+  alertasUltimoResumo  String? // data (AAAA-MM-DD) do ultimo resumo diario enviado
   webhookToken     String?
 
   // Agente de Atendimento
@@ -996,4 +1002,23 @@ model MaterialMovimento {
 
   @@index([materialId, createdAt])
   @@index([tenantId])
+}
+
+// Avisos do assistente pessoal (painel + WhatsApp da dona). enviadoEm = texto completo ja
+// entregue; templateEm = so o template curto foi (janela de 24h fechada), falta o detalhe.
+model Alerta {
+  id         String    @id @default(cuid())
+  tenantId   String
+  tipo       String // NOVO_AGENDAMENTO | CANCELAMENTO | EQUIPE | RESUMO_DIARIO | TESTE
+  titulo     String
+  texto      String
+  urgente    Boolean   @default(false)
+  conversaId String? // EQUIPE: conversa da cliente que espera a resposta
+  enviadoEm  DateTime?
+  templateEm DateTime?
+  createdAt  DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
 }

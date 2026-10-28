@@ -37,6 +37,83 @@ router.get(
   })
 );
 
+// Sub-aba Assistente pessoal: numeros que recebem os avisos, quais avisos, horario do resumo,
+// templates da Meta (numero oficial) e os avisos recentes.
+const alertas = require("../services/alertas.service");
+
+router.get(
+  "/alertas",
+  asyncHandler(async (req, res) => {
+    const tenantId = req.auth.tenantId;
+    const config = await getAgenteConfig(tenantId);
+    const [templates, recentes] = await Promise.all([
+      alertas.statusTemplates(tenantId),
+      prisma.alerta.findMany({ where: { tenantId }, orderBy: { createdAt: "desc" }, take: 40 }),
+    ]);
+    return ok(res, {
+      numeros: config.alertasNumeros,
+      tipos: config.alertasTipos,
+      horaResumo: config.alertasHoraResumo,
+      provider: config.whatsappProvider,
+      templates,
+      recentes,
+    });
+  })
+);
+
+router.patch(
+  "/alertas",
+  requireDono,
+  asyncHandler(async (req, res) => {
+    const b = req.body || {};
+    const data = {};
+    if (b.numeros !== undefined) {
+      const lista = (Array.isArray(b.numeros) ? b.numeros : []).map((n) => normalizePhone(n)).filter(Boolean);
+      for (const n of lista) if (n.length < 12 || n.length > 13) throw badRequest(`Numero invalido: ${n}. Use DDD + numero.`);
+      data.alertasNumeros = [...new Set(lista)];
+    }
+    if (b.tipos !== undefined) data.alertasTipos = (Array.isArray(b.tipos) ? b.tipos : []).filter((t) => alertas.TIPOS.includes(t));
+    if (b.horaResumo !== undefined) {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(b.horaResumo))) throw badRequest("Horario do resumo invalido (use HH:MM).");
+      data.alertasHoraResumo = String(b.horaResumo);
+    }
+    const atual = await getAgenteConfig(req.auth.tenantId);
+    if (b.wabaId !== undefined) data.whatsappConfig = { ...(atual.whatsappConfig || {}), wabaId: String(b.wabaId || "").replace(/\D/g, "") || undefined };
+    await prisma.agenteConfig.update({ where: { tenantId: req.auth.tenantId }, data });
+    return ok(res, { salvo: true });
+  })
+);
+
+router.post(
+  "/alertas/templates",
+  requireDono,
+  asyncHandler(async (req, res) => {
+    const r = await alertas.criarTemplates(req.auth.tenantId);
+    return ok(res, { ...r, templates: await alertas.statusTemplates(req.auth.tenantId) });
+  })
+);
+
+router.post(
+  "/alertas/teste",
+  requireDono,
+  asyncHandler(async (req, res) => {
+    const alerta = await alertas.registrarAlerta(req.auth.tenantId, {
+      tipo: "TESTE",
+      titulo: "Teste do assistente pessoal",
+      texto: "Se chegou aqui, os avisos estão funcionando.",
+      urgente: true,
+    });
+    const atualizado = alerta ? await prisma.alerta.findUnique({ where: { id: alerta.id } }) : null;
+    return ok(res, { alerta: atualizado });
+  })
+);
+
+router.post(
+  "/alertas/resumo",
+  requireDono,
+  asyncHandler(async (req, res) => ok(res, await alertas.enviarResumoDiario(req.auth.tenantId, { forcar: true })))
+);
+
 // Sub-aba Agente de Atendimento
 router.patch(
   "/atendimento",

@@ -56,6 +56,37 @@ function serializar(ag, tenant) {
   };
 }
 
+// Aviso do assistente pessoal (alertas.service). require tardio: alertas usa whatsapp.service,
+// e aviso nunca pode derrubar o fluxo do agendamento.
+const ORIGEM_ROTULO = { SITE: "pelo site", AGENTE: "pela IA no WhatsApp", PORTAL: "pela área da cliente", MANUAL: "pela equipe" };
+function avisar(tenantId, id, tipo) {
+  setImmediate(async () => {
+    try {
+      const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+      const ag = serializar(await obter(tenantId, id), tenant);
+      const servicos = (ag.servicos || []).map((s) => s.nome).join(" + ");
+      const quando = `${ag.data.slice(8, 10)}/${ag.data.slice(5, 7)} às ${ag.hora}`;
+      const quem = ag.cliente?.nome || "Cliente";
+      const alertas = require("./alertas.service");
+      if (tipo === "NOVO_AGENDAMENTO") {
+        await alertas.registrarAlerta(tenantId, {
+          tipo,
+          titulo: "Novo agendamento",
+          texto: `${quem} · ${servicos} · ${quando}${ag.profissional?.nome ? ` com ${ag.profissional.nome}` : ""} (${ORIGEM_ROTULO[ag.origem] || "agendado"}).`,
+        });
+      } else {
+        await alertas.registrarAlerta(tenantId, {
+          tipo,
+          titulo: "Cancelamento",
+          texto: `${quem} cancelou ${servicos} de ${quando}.${ag.motivoCancelamento ? ` Motivo: ${ag.motivoCancelamento}` : ""} O horário ficou livre.`,
+        });
+      }
+    } catch (error) {
+      log("agenda", "aviso_falhou", { tenantId, id, tipo, erro: error.message });
+    }
+  });
+}
+
 async function obter(tenantId, id) {
   const ag = await prisma.agendamento.findFirst({ where: { id, tenantId }, include: INCLUDE_COMPLETO });
   if (!ag) throw notFound("Agendamento nao encontrado.");
@@ -252,6 +283,7 @@ async function criar(input) {
   if (resultado.agendamento.status === "CONFIRMADO" && origem !== "MANUAL") {
     await baixarEstoqueAgendamento(resultado.agendamento.id);
     await dispararAutomacao("CONFIRMACAO", resultado.agendamento.id);
+    avisar(tenantId, resultado.agendamento.id, "NOVO_AGENDAMENTO");
   }
   if (formaPagamento === "PIX" && resultado.pagamento) {
     await pagamentos.gerarPix(resultado.pagamento.id);
@@ -295,6 +327,7 @@ async function confirmarPorPagamento(agendamentoId) {
     await baixarEstoqueAgendamento(ag.id);
     await dispararAutomacao("CONFIRMACAO", ag.id);
     notificarAgenda(ag.tenantId, ag.id, "confirmado");
+    if (ag.origem !== "MANUAL") avisar(ag.tenantId, ag.id, "NOVO_AGENDAMENTO");
     return;
   }
 
@@ -554,6 +587,8 @@ async function cancelar(tenantId, id, { tipo = "CANCELAMENTO", porEstabeleciment
     await dispararAutomacao("AVISO_CANCELAMENTO", id, { extras: { reembolso: textoReembolso } });
   }
   log("agenda", novoStatus === "NO_SHOW" ? "no_show" : "cancelado", { tenantId, id, regra: calculo.regra, valor: calculo.valor });
+  // cancelamento feito pela cliente (site, portal, IA): a equipe nao sabe e o horario ficou livre
+  if (novoStatus === "CANCELADO" && !porEstabelecimento) avisar(tenantId, id, "CANCELAMENTO");
   notificarAgenda(tenantId, id, novoStatus.toLowerCase());
   return { agendamento: await obterSerializado(tenantId, id), reembolso: calculo, reembolsos };
 }

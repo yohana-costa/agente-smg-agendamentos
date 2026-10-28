@@ -9,6 +9,7 @@ const { retomarPausasVencidas } = require("../agents/orchestrator");
 const assinaturas = require("./assinatura/assinatura.service");
 const pagamentos = require("./pagamentos/pagamento.service");
 const { addMinutes } = require("../lib/time");
+const alertas = require("./alertas.service");
 const { log } = require("../lib/helpers");
 
 let running = false;
@@ -107,7 +108,8 @@ async function tick() {
     ["lembrete_atendimento", () => lembretesAtendimento(agora)],
     ["pos_atendimento", () => posAtendimento(agora)],
     ["aviso_retorno", () => avisosRetorno(agora)],
-    ["retomar_pausas", () => retomarPausasVencidas()]
+    ["retomar_pausas", () => retomarPausasVencidas()],
+    ["resumo_diario", () => alertas.processarResumos()]
   );
   // Assinaturas da plataforma (Pix Automatico / cartao): no maximo 1x por minuto.
   if (Date.now() - ultimaAssinatura > 60000) {

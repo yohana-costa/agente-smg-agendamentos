@@ -5,14 +5,15 @@ import { navigate, useQueryParam } from '../../lib/router'
 import { ErrorBanner, Loading, PageHeader, Tabs } from '../../components/ui'
 import { AgenteAtendimento } from './agentes/AgenteAtendimento'
 import { AgenteGestao } from './agentes/AgenteGestao'
+import { AssistentePessoal } from './agentes/AssistentePessoal'
 import { ConexaoWhatsApp } from './agentes/ConexaoWhatsApp'
 import { Simulador } from './agentes/Simulador'
 import type { AgenteConfig, AgentesDados, NumeroAutorizado } from './agentes/types'
 import './agentes/agentes.css'
 import './atendimento/atendimento.css'
 
-type Aba = 'atendimento' | 'gestao' | 'whatsapp' | 'simulador'
-const ABAS: Aba[] = ['atendimento', 'gestao', 'whatsapp', 'simulador']
+type Aba = 'atendimento' | 'gestao' | 'assistente' | 'whatsapp' | 'simulador'
+const ABAS: Aba[] = ['atendimento', 'gestao', 'assistente', 'whatsapp', 'simulador']
 
 export default function AgentesIA() {
   const { usuario } = useAuth()
@@ -64,6 +65,7 @@ export default function AgentesIA() {
             tabs={[
               { key: 'atendimento', label: 'Agente de Atendimento' },
               { key: 'gestao', label: 'Agente de Gestão' },
+              { key: 'assistente', label: 'Assistente pessoal' },
               { key: 'whatsapp', label: 'Conexão WhatsApp' },
               { key: 'simulador', label: 'Simulador' },
             ]}
@@ -72,6 +74,7 @@ export default function AgentesIA() {
           />
           {aba === 'atendimento' ? <AgenteAtendimento dados={d} onConfig={atualizarConfig} irPara={irPara} /> : null}
           {aba === 'gestao' ? <AgenteGestao dados={d} isDono={isDono} onConfig={atualizarConfig} onNumeros={atualizarNumeros} irPara={irPara} /> : null}
+          {aba === 'assistente' ? <AssistentePessoal isDono={isDono} /> : null}
           {aba === 'whatsapp' ? (
             <ConexaoWhatsApp
               dados={d}

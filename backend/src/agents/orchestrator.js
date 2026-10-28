@@ -15,6 +15,7 @@ const { textoDaMidia } = require("../services/whatsapp/midia.service");
 const historicoCoex = require("../services/whatsapp/historico.service");
 const atendimentoAgent = require("./atendimento/agent");
 const gateway = require("../services/pagamentos/gateway");
+const alertas = require("../services/alertas.service");
 const gestaoAgent = require("./gestao/agent");
 
 const timers = new Map();
@@ -82,6 +83,23 @@ const ROTULO_CONSULTA = { duvida: "Duvida", agendamento: "Pedido de horario", at
 // a conversa (ver responderConsulta).
 async function escalar(conversa, motivo, { tenant, config, simulacao = false, tipo = "atendimento_humano", mensagemCliente = null }) {
   await enviarTexto(tenant.id, conversa.telefone, mensagemCliente || config.mensagemEscalonamento, { autor: "AGENTE", simulacao });
+  // Com o assistente pessoal configurado, a pergunta vai como aviso urgente para os numeros
+  // dele (texto se a janela de 24h estiver aberta, template se nao). A resposta citada volta
+  // por responderConsulta, porque o aviso amarra a mensagem a conversa (consultaMsgId).
+  if (!simulacao && alertas.numerosDeAlerta(config).length) {
+    const cliente = conversa.clienteId ? await prisma.cliente.findUnique({ where: { id: conversa.clienteId } }) : null;
+    const nome = cliente?.nome || conversa.nomeContato || "Cliente";
+    await pausar(conversa, { escalonar: true, motivo });
+    await alertas.registrarAlerta(tenant.id, {
+      tipo: "EQUIPE",
+      titulo: tipo === "atendimento_humano" ? `${nome} precisa falar com a equipe` : tipo === "agendamento" ? `Pedido de horário de ${nome}` : `Dúvida de ${nome}`,
+      texto: `${motivo}\nCliente: ${nome} (${conversa.telefone})\n\nResponda ESTA mensagem (segure e toque em Responder) que eu repasso para a cliente.`,
+      urgente: true,
+      conversaId: conversa.id,
+    });
+    log("agentes", "escalonado", { conversaId: conversa.id, tipo, motivo, via: "alertas" });
+    return;
+  }
   let consultaMsgId = null;
   const destino = normalizePhone(config.numeroEscalonamento);
   const mesmoNumero = destino && [...variantesTelefone(destino)].some((v) => variantesTelefone(config.whatsappNumero).has(v));
@@ -106,8 +124,8 @@ async function escalar(conversa, motivo, { tenant, config, simulacao = false, ti
 // so se houver uma unica pergunta pendente. Devolve null quando a mensagem nao e resposta.
 async function responderConsulta(tenant, config, evento) {
   const destino = normalizePhone(config.numeroEscalonamento);
-  if (!destino) return null;
-  const doEscalonamento = [...variantesTelefone(evento.contato)].some((v) => variantesTelefone(destino).has(v));
+  const doEscalonamento =
+    (destino && [...variantesTelefone(evento.contato)].some((v) => variantesTelefone(destino).has(v))) || alertas.ehNumeroDeAlerta(config, evento.contato);
   if (!doEscalonamento) return null;
   const pendentes = await prisma.conversa.findMany({
     where: { tenantId: tenant.id, canal: "ATENDIMENTO", escalonamentoPendente: true },
@@ -119,7 +137,7 @@ async function responderConsulta(tenant, config, evento) {
   let alvo = evento.quotedId ? pendentes.find((c) => c.consultaMsgId && c.consultaMsgId === evento.quotedId) : null;
   if (!alvo && pendentes.length === 1) alvo = pendentes[0];
   if (!alvo) {
-    await enviarTexto(tenant.id, destino, "Tem mais de uma pergunta esperando resposta. Responda segurando a mensagem da pergunta e tocando em Responder, para eu saber de qual cliente e.", {
+    await enviarTexto(tenant.id, evento.contato, "Tem mais de uma pergunta esperando resposta. Responda segurando a mensagem da pergunta e tocando em Responder, para eu saber de qual cliente e.", {
       autor: "SISTEMA",
       registrar: false,
     });
@@ -387,10 +405,20 @@ async function processarEvento(tenant, config, evento) {
   if (evento.isGroup || !evento.contato) return { ignorado: "grupo_ou_sem_contato" };
   const contato = normalizePhone(evento.contato);
 
-  // Resposta da doutora/equipe a uma pergunta do agente (consultar_equipe)
   if (!evento.fromMe) {
+    // "Ver alertas" (botao do template) ou "alertas": resumo e avisos pendentes
+    const pedido = await alertas.tratarPedidoDeAlertas(tenant, config, { ...evento, contato });
+    if (pedido) return pedido;
+    // Resposta da doutora/equipe a uma pergunta do agente (consultar_equipe)
     const consulta = await responderConsulta(tenant, config, evento);
     if (consulta) return consulta;
+    // Numero do assistente pessoal sem Agente de Gestao liberado: nao e cliente, nao vai para a IA
+    if (alertas.ehNumeroDeAlerta(config, contato)) {
+      const autorizadoGestao = config.gestaoAtivo
+        ? await prisma.numeroAutorizado.findUnique({ where: { tenantId_telefone: { tenantId: tenant.id, telefone: contato } } })
+        : null;
+      if (!autorizadoGestao?.ativo) return alertas.guardarMensagemDaEquipe(tenant, { ...evento, contato });
+    }
   }
   const autorizado = config.gestaoAtivo
     ? await prisma.numeroAutorizado.findUnique({ where: { tenantId_telefone: { tenantId: tenant.id, telefone: contato } } })

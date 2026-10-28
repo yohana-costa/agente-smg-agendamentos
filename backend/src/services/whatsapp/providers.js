@@ -62,6 +62,53 @@ async function sendMetaText(config, { to, text }) {
   return { provider: "meta", externalId: response.data?.messages?.[0]?.id || null };
 }
 
+// Template aprovado (unico envio aceito pela Meta com a janela de 24h fechada).
+// params: textos das variaveis {{1}}, {{2}}... (sem quebra de linha: a Meta recusa).
+async function sendMetaTemplate(config, { to, name, language = "pt_BR", params = [] }) {
+  const cfg = metaConfig(config);
+  const template = { name, language: { code: language } };
+  if (params.length) {
+    template.components = [{ type: "body", parameters: params.map((t) => ({ type: "text", text: String(t).replace(/\s+/g, " ").trim().slice(0, 900) || "-" })) }];
+  }
+  const response = await axios.post(
+    `${cfg.graphBaseUrl}/${encodeURIComponent(cfg.phoneNumberId)}/messages`,
+    { messaging_product: "whatsapp", recipient_type: "individual", to: normalizePhone(to), type: "template", template },
+    { timeout: 30000, headers: { Authorization: `Bearer ${cfg.accessToken}`, "Content-Type": "application/json" }, validateStatus: () => true }
+  );
+  if (response.status < 200 || response.status >= 300) {
+    log("whatsapp.meta", "send_template.error", { status: response.status, name, data: response.data });
+    throw createAppError(response?.data?.error?.message || `Falha ao enviar template (status ${response.status}).`, 502);
+  }
+  return { provider: "meta", externalId: response.data?.messages?.[0]?.id || null };
+}
+
+// POST /{waba_id}/message_templates (a Datafy espelha a Meta com o token do canal).
+async function criarTemplateMeta(config, wabaId, corpo) {
+  const cfg = metaConfig(config);
+  const response = await axios.post(`${cfg.graphBaseUrl}/${encodeURIComponent(wabaId)}/message_templates`, corpo, {
+    timeout: 30000,
+    headers: { Authorization: `Bearer ${cfg.accessToken}`, "Content-Type": "application/json" },
+    validateStatus: () => true,
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw createAppError(response?.data?.error?.error_user_msg || response?.data?.error?.message || `Falha ao criar template (status ${response.status}).`, 502);
+  }
+  return response.data;
+}
+
+async function listarTemplatesMeta(config, wabaId) {
+  const cfg = metaConfig(config);
+  const response = await axios.get(`${cfg.graphBaseUrl}/${encodeURIComponent(wabaId)}/message_templates?limit=100`, {
+    timeout: 30000,
+    headers: { Authorization: `Bearer ${cfg.accessToken}` },
+    validateStatus: () => true,
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw createAppError(response?.data?.error?.message || `Falha ao listar templates (status ${response.status}).`, 502);
+  }
+  return response.data?.data || [];
+}
+
 // ---------- parsers de webhook (formato normalizado) ----------
 
 function parseUazapi(payload) {
@@ -189,4 +236,4 @@ async function downloadMetaMedia(config, mediaId) {
   return { buffer: Buffer.from(bin.data), mimeType: meta.data.mime_type || bin.headers["content-type"] || "audio/ogg" };
 }
 
-module.exports = { sendUazapiText, sendMetaText, parseUazapi, parseMeta, downloadUazapiMedia, downloadMetaMedia };
+module.exports = { sendUazapiText, sendMetaText, sendMetaTemplate, criarTemplateMeta, listarTemplatesMeta, parseUazapi, parseMeta, downloadUazapiMedia, downloadMetaMedia };
