@@ -71,7 +71,7 @@ export default function Assinar() {
         setPlano(p)
         if (!p.pix && p.cartao) setMetodo('CREDIT_CARD')
       })
-      .catch(() => setPlano({ valor: 197, pix: true, cartao: true }))
+      .catch(() => setPlano({ valor: 297, pix: true, cartao: true }))
     return () => {
       if (timer.current) window.clearTimeout(timer.current)
     }

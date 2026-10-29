@@ -47,7 +47,7 @@ const env = {
   gatewayTaxaCartaoPct: Number(process.env.GATEWAY_TAXA_CARTAO_PCT || 4.98),
 
   // Assinatura do sistema (landing + /assinar). Contas da SMG, nao das lojas.
-  planoMensalValor: Number(process.env.PLANO_MENSAL_VALOR || 197),
+  planoMensalValor: Number(process.env.PLANO_MENSAL_VALOR || 297),
   asaasApiKey: text(process.env.ASAAS_API_KEY),
   asaasBaseUrl: text(process.env.ASAAS_BASE_URL, "https://api-sandbox.asaas.com/v3").replace(/\/+$/, ""),
   // header asaas-access-token do webhook (Asaas > Integracoes > Webhooks)
