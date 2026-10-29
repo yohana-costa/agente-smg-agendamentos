@@ -16,8 +16,9 @@ const { getAgenteConfig, obterConversa, registrarMensagem, enviarTexto } = requi
 const { sendMetaTemplate, criarTemplateMeta, listarTemplatesMeta } = require("./whatsapp/providers");
 
 const TIPOS = ["NOVO_AGENDAMENTO", "CANCELAMENTO", "EQUIPE", "RESUMO_DIARIO"];
-const TEMPLATE_RESUMO = "smg_resumo_diario";
-const TEMPLATE_URGENTE = "smg_alerta_urgente";
+// Um template so para tudo (avisos e resumo): "Aviso do {{1}}: {{2}}. Toque em Ver alertas...".
+// O nome ficou "urgente" porque ja estava em analise na Meta quando virou universal.
+const TEMPLATE_AVISO = "smg_alerta_urgente";
 const JANELA_MS = 23.5 * 3600 * 1000; // margem de 30 min antes das 24h da Meta
 
 const PALAVRAS_VER = /^(ver alertas|alertas|avisos|ver avisos|resumo)$/i;
@@ -105,23 +106,27 @@ async function registrarAlerta(tenantId, { tipo, titulo, texto, urgente = false,
     let template = false;
     for (const numero of numeros) {
       try {
-        if (await janelaAberta(tenantId, config, numero)) {
+        if (usaTemplate(config)) {
+          // Numero oficial: TODO aviso sai pelo template universal de utilidade ({{2}} = o aviso
+          // inteiro numa linha), com ou sem janela de 24h. Decisao de 29/10/2026: a dona nao
+          // deve precisar responder para receber; dentro da janela a Meta nao cobra utilidade.
+          const r = await enviarTemplateAlerta(tenantId, config, numero, TEMPLATE_AVISO, [tenant?.nome || "estabelecimento", umaLinha(`${titulo}: ${texto}`).slice(0, 900)], `[Template] ${titulo}: ${umaLinha(texto)}`);
+          template = true;
+          await amarrarConsulta(alerta, r.externalId);
+        } else {
           const r = await enviarTextoAlerta(tenantId, numero, textoCompleto(alerta));
           if (r.enviado) {
             entregue = true;
             await amarrarConsulta(alerta, r.externalId);
           }
-        } else if (urgente) {
-          const r = await enviarTemplateAlerta(tenantId, config, numero, TEMPLATE_URGENTE, [tenant?.nome || "estabelecimento", umaLinha(`${titulo}: ${texto}`).slice(0, 300)], `[Template urgente] ${titulo}`);
-          template = true;
-          await amarrarConsulta(alerta, r.externalId);
         }
       } catch (error) {
         log("alertas", "envio_falhou", { tenantId, tipo, numero, erro: error.message });
       }
     }
     if (entregue || template) {
-      await prisma.alerta.update({ where: { id: alerta.id }, data: entregue ? { enviadoEm: new Date() } : { templateEm: new Date() } });
+      // o template ja leva o aviso inteiro: conta como entregue (nao repete no "Ver alertas")
+      await prisma.alerta.update({ where: { id: alerta.id }, data: { enviadoEm: new Date(), ...(template && !entregue ? { templateEm: new Date() } : {}) } });
     }
     return alerta;
   } catch (error) {
@@ -177,7 +182,18 @@ async function montarResumo(tenantId) {
   if (pendentes) partes.push(`${pendentes} aviso(s)`);
   const linhaCurta = partes.length > 1 ? `${partes.slice(0, -1).join(", ")} e ${partes[partes.length - 1]}` : partes[0];
 
-  return { nome: tenant?.nome || "estabelecimento", texto: linhas.join("\n"), linhaCurta };
+  // Resumo inteiro numa linha, para o template (a Meta nao aceita quebra de linha na variavel).
+  const linhaCompleta = [
+    `${deHoje.length} atendimento(s) hoje${primeiro ? ` (o primeiro às ${primeiro})` : ""}`,
+    `ontem ${concluidosOntem.length} concluído(s), ${brl(faturamentoOntem)}`,
+    aguardando ? `${aguardando} aguardando pagamento` : "",
+    baixos.length ? `estoque baixo: ${baixos.slice(0, 6).join(", ")}${baixos.length > 6 ? ` e mais ${baixos.length - 6}` : ""}` : "",
+    pendentes ? `${pendentes} aviso(s) pendente(s)` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return { nome: tenant?.nome || "estabelecimento", texto: linhas.join("\n"), linhaCurta, linhaCompleta };
 }
 
 /** Resumo completo + avisos pendentes como texto (janela aberta). */
@@ -207,8 +223,8 @@ async function enviarResumoDiario(tenantId, { forcar = false } = {}) {
   let enviados = 0;
   for (const numero of numeros) {
     try {
-      if (await janelaAberta(tenantId, config, numero)) await entregarTudo(tenantId, numero);
-      else await enviarTemplateAlerta(tenantId, config, numero, TEMPLATE_RESUMO, [resumo.nome, resumo.linhaCurta], `[Template resumo] ${resumo.linhaCurta}`);
+      if (!usaTemplate(config)) await entregarTudo(tenantId, numero);
+      else await enviarTemplateAlerta(tenantId, config, numero, TEMPLATE_AVISO, [resumo.nome, `Resumo do dia: ${resumo.linhaCompleta}`.slice(0, 900)], `[Template] Resumo do dia: ${resumo.linhaCompleta}`);
       enviados++;
     } catch (error) {
       log("alertas", "resumo_falhou", { tenantId, numero, erro: error.message });
@@ -264,21 +280,7 @@ async function guardarMensagemDaEquipe(tenant, evento) {
 
 const MODELOS = [
   {
-    name: TEMPLATE_RESUMO,
-    language: "pt_BR",
-    category: "UTILITY",
-    components: [
-      {
-        type: "BODY",
-        text: "Bom dia! O resumo do dia do {{1}} está pronto: {{2}}. Toque em Ver alertas para ver os detalhes.",
-        example: { body_text: [["Studio Bella", "8 atendimentos hoje e 2 avisos"]] },
-      },
-      { type: "FOOTER", text: "Assistente SMG" },
-      { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Ver alertas" }] },
-    ],
-  },
-  {
-    name: TEMPLATE_URGENTE,
+    name: TEMPLATE_AVISO,
     language: "pt_BR",
     category: "UTILITY",
     components: [
