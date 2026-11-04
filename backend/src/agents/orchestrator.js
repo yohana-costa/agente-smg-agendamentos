@@ -50,10 +50,22 @@ async function devolverAoAgente(conversaId) {
 
 // Retorno automatico apos o tempo configurado (chamado pelo scheduler).
 async function retomarPausasVencidas() {
-  const vencidas = await prisma.conversa.findMany({ where: { status: { not: "ATIVO" }, pausadoAte: { lt: new Date() } }, select: { id: true, tenantId: true } });
+  const vencidas = await prisma.conversa.findMany({ where: { status: { not: "ATIVO" }, pausadoAte: { lt: new Date() } }, select: { id: true, tenantId: true, canal: true } });
   for (const c of vencidas) {
     await prisma.conversa.update({ where: { id: c.id }, data: { status: "ATIVO", pausadoAte: null } });
     events.publish(c.tenantId, "conversa.status", { conversaId: c.id, status: "ATIVO" });
+    // A cliente escreveu durante a pausa e ninguem da equipe respondeu depois: o agente responde
+    // agora (antes so respondia quando chegasse outra mensagem, e a cliente ficava esperando).
+    if (c.canal !== "ATENDIMENTO") continue;
+    const ultima = await prisma.mensagem.findFirst({
+      where: { conversaId: c.id, autor: { not: "SISTEMA" } },
+      orderBy: { createdAt: "desc" },
+      select: { autor: true, createdAt: true },
+    });
+    if (ultima?.autor === "CLIENTE" && Date.now() - ultima.createdAt.getTime() < 24 * 60 * 60 * 1000) {
+      log("agentes", "retomada_com_mensagem_pendente", { conversaId: c.id });
+      agendar(c.id);
+    }
   }
   return vencidas.length;
 }
