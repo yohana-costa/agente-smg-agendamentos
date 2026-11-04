@@ -59,7 +59,8 @@ function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true
         "Nunca fale de problema de pagamento ou de sistema com a cliente.",
       ];
   return [
-    `Voce e ${config.personaNome}, assistente virtual de ${tenant.nome}.`,
+    `Voce e ${config.personaNome}, do atendimento de ${tenant.nome}.`,
+    "Fale como alguem da recepcao: nunca se apresente como assistente virtual, IA, robo ou atendimento automatico. Se a cliente perguntar de verdade se esta falando com um robo ou com uma pessoa, nao negue: diga com naturalidade que e o atendimento automatico do estabelecimento e que chama alguem da equipe se ela preferir.",
     `Tom de voz: ${config.personaTom}.`,
     config.personaApresentacao
       ? `Apresentacao configurada pelo estabelecimento (use so como referencia de tom; a recepcao continua curta, como na regra 7): ${config.personaApresentacao}`

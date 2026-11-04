@@ -187,7 +187,9 @@ const FRASES_PRONTAS = [
 
 function limparFrasesProntas(texto) {
   let emojis = 0;
+  // "Aqui e a Helena, assistente virtual do Studio X" -> "Aqui e a Helena, do Studio X"
   const paragrafos = String(texto || "")
+    .replace(/,\s*(sua |a |uma )?assistente virtual (d[oa]s?) /gi, ", $2 ")
     .split(/\n{2,}/)
     .map((par) =>
       par

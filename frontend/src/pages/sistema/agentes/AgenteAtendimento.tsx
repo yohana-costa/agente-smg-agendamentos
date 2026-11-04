@@ -137,7 +137,7 @@ export function AgenteAtendimento({ dados, onConfig, irPara }: { dados: AgentesD
               <Field label="Número que recebe as notificações de escalonamento" hint="Recebe pelo WhatsApp o aviso de qual cliente precisa de atenção. Em branco: apenas a aba Atendimento é sinalizada.">
                 <input className="input" style={{ maxWidth: 280 }} inputMode="tel" value={form.numeroEscalonamento} onChange={(e) => set('numeroEscalonamento', e.target.value)} placeholder="(11) 99999-9999" />
               </Field>
-              <Field label="Tempo de retorno após a pausa" hint="Quanto tempo o agente espera para voltar a responder numa conversa pausada (escalonada ou em que um humano respondeu).">
+              <Field label="Tempo de retorno após a última mensagem da equipe" hint="Ao assumir uma conversa, o agente fica pausado. Cada mensagem enviada pela equipe (pelo sistema ou pelo WhatsApp do celular) reinicia a contagem; passado esse tempo sem nova mensagem da equipe, o agente volta a responder.">
                 <div className="ia-chips-row">
                   {TEMPOS.map((t) => (
                     <button
