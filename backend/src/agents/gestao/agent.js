@@ -85,16 +85,19 @@ function allTools(ctx) {
       schema: z.object({ servico_ids: z.array(z.string()).min(1), data: z.string(), profissional_id: z.string().optional() }),
       handler: async ({ servico_ids, data, profissional_id }) => {
         const r = await disponibilidade.listarHorarios({ tenantId, servicoIds: servico_ids, data, profissionalId: profissional_id });
-        return { ok: true, profissionais: r.profissionais.map((p) => ({ id: p.profissionalId, nome: p.nome, horarios: p.horarios })) };
+        const profissionais = r.profissionais.map((p) => ({ id: p.profissionalId, nome: p.nome, horarios: p.horarios }));
+        return { ok: true, data, profissionais, ...(profissionais.length ? {} : { aviso: "Nenhum profissional com horario livre nessa data para esses servicos." }) };
       },
     },
     {
       modulo: "agenda",
       acao: "alterar",
       name: "criar_agendamento",
-      description: "Cria agendamento manual. pagamento: LOCAL (dinheiro/maquininha no local) ou LINK (envia link de pagamento ao cliente). encaixe=true forca horario com conflito.",
+      description:
+        "Cria agendamento manual. Cliente ja cadastrada: basta o nome (ou cliente_id). Cliente nova: precisa do telefone; nunca invente telefone, pergunte. pagamento: LOCAL (dinheiro/maquininha no local) ou LINK (envia link de pagamento ao cliente). encaixe=true forca horario com conflito.",
       schema: z.object({
-        cliente_telefone: z.string(),
+        cliente_id: z.string().optional(),
+        cliente_telefone: z.string().optional().describe("So digitos com DDD; deixe vazio se nao foi informado"),
         cliente_nome: z.string().optional(),
         servico_ids: z.array(z.string()).min(1),
         profissional_id: z.string(),
@@ -105,10 +108,28 @@ function allTools(ctx) {
         observacoes: z.string().optional(),
       }),
       handler: async (i) => {
+        // Sem telefone valido (o modelo chegava a mandar "desconhecido"): usa a cliente cadastrada com esse nome.
+        let clienteId = i.cliente_id || null;
+        if (!clienteId && normalizePhone(i.cliente_telefone || "").length < 10) {
+          if (!i.cliente_nome) return { ok: false, error: "Informe o nome ou o telefone da cliente." };
+          const achados = await prisma.cliente.findMany({
+            where: { tenantId, mescladoEmId: null, nome: { contains: i.cliente_nome.trim(), mode: "insensitive" } },
+            select: { id: true, nome: true, telefone: true },
+            take: 5,
+          });
+          const exato = achados.filter((c) => c.nome.trim().toLowerCase() === i.cliente_nome.trim().toLowerCase());
+          const escolhido = exato.length === 1 ? exato[0] : achados.length === 1 ? achados[0] : null;
+          if (!escolhido) {
+            return achados.length
+              ? { ok: false, error: "Mais de uma cliente com esse nome. Pergunte qual e reenvie com cliente_id.", clientes: achados }
+              : { ok: false, error: `Nenhuma cliente cadastrada com o nome "${i.cliente_nome}". Peca o telefone (com DDD) para cadastrar e agendar.` };
+          }
+          clienteId = escolhido.id;
+        }
         const ag = await agendamentoService.criar({
           tenantId,
           origem: "MANUAL",
-          cliente: { telefone: i.cliente_telefone, nome: i.cliente_nome },
+          ...(clienteId ? { clienteId } : { cliente: { telefone: i.cliente_telefone, nome: i.cliente_nome } }),
           servicoIds: i.servico_ids,
           profissionalId: i.profissional_id,
           data: i.data,
@@ -572,12 +593,57 @@ function permitido(permissoes, tool) {
   return lista.includes(tool.modulo);
 }
 
+// O historico guarda so o texto das mensagens, nao o resultado das ferramentas: o modelo costuma
+// passar o NOME do profissional/servico em vez do id (ex.: "Barbara domingos"), e a ferramenta
+// voltava vazia como se nao houvesse horario. Aceita id ou nome (sem diferenciar maiuscula/acento);
+// nome que nao bate com ninguem vira erro explicito com a lista de opcoes.
+const semAcento = (v) => String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+
+function resolvedorDeIds(tenantId) {
+  let cache = null;
+  const carregar = async () => {
+    if (!cache) {
+      const [profissionais, servicos] = await Promise.all([
+        prisma.profissional.findMany({ where: { tenantId }, select: { id: true, nome: true, ativo: true } }),
+        prisma.servico.findMany({ where: { tenantId }, select: { id: true, nome: true, ativo: true } }),
+      ]);
+      cache = { profissionais, servicos };
+    }
+    return cache;
+  };
+  const achar = (lista, v, tipo) => {
+    if (lista.some((x) => x.id === v)) return v;
+    const alvo = semAcento(v);
+    const ativos = lista.filter((x) => x.ativo !== false);
+    const achado =
+      ativos.find((x) => semAcento(x.nome) === alvo) ||
+      ativos.find((x) => semAcento(x.nome).startsWith(alvo)) ||
+      ativos.find((x) => alvo && (semAcento(x.nome).includes(alvo) || alvo.includes(semAcento(x.nome))));
+    if (achado) return achado.id;
+    const erro = new Error(`${tipo} "${v}" nao encontrado. Opcoes: ${ativos.map((x) => `${x.nome} (id ${x.id})`).join(", ")}`);
+    throw erro;
+  };
+  return async (input) => {
+    if (!input || typeof input !== "object") return input;
+    const { profissionais, servicos } = await carregar();
+    const i = { ...input };
+    if (i.profissional_id) i.profissional_id = achar(profissionais, i.profissional_id, "Profissional");
+    if (Array.isArray(i.profissional_ids)) i.profissional_ids = i.profissional_ids.map((v) => achar(profissionais, v, "Profissional"));
+    if (i.servico_id) i.servico_id = achar(servicos, i.servico_id, "Servico");
+    if (Array.isArray(i.servico_ids)) i.servico_ids = i.servico_ids.map((v) => achar(servicos, v, "Servico"));
+    return i;
+  };
+}
+
 function buildTools(ctx) {
   const permissoes = ctx.autorizado.permissoes || {};
   // referencias basicas (ids de profissionais/servicos) sao liberadas para quem tem qualquer permissao de agenda
   const temAgenda = (permissoes.consultar || []).concat(permissoes.alterar || []).includes("agenda");
   const referencias = ["listar_profissionais", "listar_servicos"];
-  return allTools(ctx).filter((t) => permitido(permissoes, t) || (temAgenda && referencias.includes(t.name)));
+  const resolver = resolvedorDeIds(ctx.tenant.id);
+  return allTools(ctx)
+    .filter((t) => permitido(permissoes, t) || (temAgenda && referencias.includes(t.name)))
+    .map((t) => ({ ...t, handler: async (input) => t.handler(await resolver(input)) }));
 }
 
 module.exports = { MODULOS, buildSystemPrompt, buildTools };
