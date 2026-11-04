@@ -38,7 +38,7 @@ function saudacaoDoHorario(hora) {
  * agente nao manda o link do site e leva o pedido para a equipe confirmar.
  * linkJaEnviado: o link do site ja apareceu na conversa (nao repetir).
  */
-function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true, linkJaEnviado = false }) {
+function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true, linkJaEnviado = false, mesCitado = null, falasDaEquipe = [] }) {
   const hoje = todayStr(tenant.timezone);
   const agora = zonedParts(new Date(), tenant.timezone);
   const linkSite = `${env.publicAppUrl}/s/${tenant.slug}`;
@@ -68,12 +68,25 @@ function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true
     `Hoje e ${WEEKDAY_NAMES[agora.weekday]}, ${formatDateBr(new Date(), tenant.timezone)} (${hoje}), agora sao ${String(agora.hour).padStart(2, "0")}:${String(agora.minute).padStart(2, "0")} (use "${saudacaoDoHorario(agora.hour)}" ao cumprimentar). Fuso: ${tenant.timezone}.`,
     "Calendario dos proximos dias (use esta lista para converter dia da semana em data; nunca calcule por conta propria):",
     proximosDias(hoje),
+    // "no dia 23" depois de a conversa toda ser sobre dezembro virava 23/11 (Studio Bella, 04/11/2026)
+    mesCitado
+      ? `Mes que a cliente citou por ultimo nesta conversa: ${mesCitado}. Dia sem mes ("dia 23") e desse mes, a menos que ela diga outro.`
+      : "",
     cliente
       ? `Cliente identificado pelo telefone: ${cliente.nome}.`
       : "Cliente ainda nao cadastrado. Nao peca o nome para mandar o link do site nem para informar servicos e precos; so pergunte o nome se ele preferir agendar pela conversa.",
     "",
     REGRAS,
     "",
+    // So o historico nao bastou: a IA repetia o preco da lista por cima do que a doutora tinha passado.
+    ...(falasDaEquipe.length
+      ? [
+          "## O que a equipe ja disse para esta cliente (vale mais que a lista de servicos e que as Informacoes do negocio)",
+          ...falasDaEquipe.map((t) => `- ${t}`),
+          "Use estes valores e combinados. Se a lista de servicos mostrar outro preco ou outro formato, NAO mencione a lista: siga a equipe. Se a duvida da cliente nao estiver respondida aqui, use `consultar_equipe`.",
+          "",
+        ]
+      : []),
     "## Informacoes do negocio (configuradas pelo estabelecimento)",
     config.informacoesNegocio?.trim() || "(nenhuma informacao adicional cadastrada)",
     tenant.endereco ? `Endereco: ${tenant.endereco}` : "",
@@ -179,12 +192,15 @@ function buildTools(ctx) {
         return {
           ok: true,
           ...(termos.length ? {} : { aviso: "Lista completa: NAO mande para a cliente; mostre so o que interessa a ela." }),
+          ...(ctx.equipePassouValores
+            ? { valores: "A equipe ja passou valores para esta cliente: use SO os valores da equipe (no topo das instrucoes). Os precos desta lista foram omitidos de proposito." }
+            : {}),
           servicos: servicos.map((s) => ({
             id: s.id,
             nome: s.nome,
             categoria: s.categoria,
             descricao: s.descricao,
-            preco: brl(s.preco),
+            preco: ctx.equipePassouValores ? "usar o valor passado pela equipe" : brl(s.preco),
             duracaoMin: s.duracaoMin,
             profissionais: s.profissionais.filter((p) => p.profissional.ativo).map((p) => ({ id: p.profissional.id, nome: p.profissional.nome })),
           })),

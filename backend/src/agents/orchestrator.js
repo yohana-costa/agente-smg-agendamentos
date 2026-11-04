@@ -195,6 +195,7 @@ const FRASES_PRONTAS = [
   /ser(á|a) um prazer (te )?(atender|receber)/i,
   /qualquer (d(ú|u)vida|coisa),? (é|e) s(ó|o)/i,
   /posso (te )?ajudar (em|com) (mais )?(alguma|algo|outra)/i,
+  /(consta|esta|está|aparece|cadastrad[oa]) no sistema/i,
 ];
 
 function limparFrasesProntas(texto) {
@@ -258,6 +259,39 @@ function liberadoNoModoTeste(config, telefone) {
   return lista.some((n) => [...variantesTelefone(n)].some((x) => alvo.has(x)));
 }
 
+// Ultimo mes citado nas mensagens recentes (cliente ou equipe), para "dia 23" sem mes nao virar o mes atual.
+const MESES = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+async function mesCitadoNaConversa(conversaId) {
+  const msgs = await prisma.mensagem.findMany({
+    where: { conversaId, autor: { in: ["CLIENTE", "HUMANO"] } },
+    orderBy: { createdAt: "desc" },
+    take: 40,
+    select: { texto: true },
+  });
+  for (const m of msgs) {
+    const t = String(m.texto || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    let ultimo = null;
+    let pos = -1;
+    for (const mes of MESES) {
+      const i = t.lastIndexOf(mes);
+      if (i > pos) [ultimo, pos] = [mes, i];
+    }
+    if (ultimo) return ultimo === "marco" ? "marco (03)" : `${ultimo} (${String(MESES.indexOf(ultimo) + 1).padStart(2, "0")})`;
+  }
+  return null;
+}
+
+// Mensagens da equipe nas ultimas 48h desta conversa (valores, combinados), em ordem.
+async function falasDaEquipe(conversaId) {
+  const msgs = await prisma.mensagem.findMany({
+    where: { conversaId, autor: "HUMANO", createdAt: { gte: new Date(Date.now() - 48 * 60 * 60 * 1000) } },
+    orderBy: { createdAt: "desc" },
+    take: 15,
+    select: { texto: true },
+  });
+  return msgs.reverse().map((m) => String(m.texto || "").replace(/\s+/g, " ").trim()).filter(Boolean);
+}
+
 async function processarConversa(conversaId, { simulacao = false } = {}) {
   if (running.has(conversaId)) {
     agendar(conversaId, { simulacao });
@@ -293,10 +327,22 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
       );
       const ultimaDaCliente = await prisma.mensagem.findFirst({ where: { conversaId, autor: "CLIENTE" }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
 
-      const ctx = { tenant, config, telefone: conversa.telefone, cliente: null, escalonamento: null, pagamentoDisponivel };
+      const falas = await falasDaEquipe(conversaId);
+      // Equipe ja falou valores nesta conversa: a lista de servicos vai sem preco para a IA nao
+      // repetir o da lista por cima do que a doutora passou (so a regra no prompt nao segurou).
+      const equipePassouValores = falas.some((t) => /\$|\breais\b|\br\s?\d/i.test(t));
+      const ctx = { tenant, config, telefone: conversa.telefone, cliente: null, escalonamento: null, pagamentoDisponivel, equipePassouValores };
       ctx.cliente = conversa.clienteId ? await prisma.cliente.findUnique({ where: { id: conversa.clienteId } }) : null;
       const r = await gerarResposta({
-        systemPrompt: atendimentoAgent.buildSystemPrompt({ tenant, config, cliente: ctx.cliente, pagamentoDisponivel, linkJaEnviado }),
+        systemPrompt: atendimentoAgent.buildSystemPrompt({
+          tenant,
+          config,
+          cliente: ctx.cliente,
+          pagamentoDisponivel,
+          linkJaEnviado,
+          mesCitado: await mesCitadoNaConversa(conversaId),
+          falasDaEquipe: falas,
+        }),
         history: await historico(conversaId),
         tools: atendimentoAgent.buildTools(ctx),
         shouldStop: () => Boolean(ctx.escalonamento),
