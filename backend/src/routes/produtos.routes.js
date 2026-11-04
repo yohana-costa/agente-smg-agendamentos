@@ -38,6 +38,8 @@ function payload(body, parcial = false) {
   if (body.custo !== undefined) data.custo = toInt(body.custo, 0, { min: 0 });
   if (body.estoque !== undefined) data.estoque = toInt(body.estoque, 0, { min: 0 });
   if (body.estoqueMinimo !== undefined) data.estoqueMinimo = toInt(body.estoqueMinimo, 0, { min: 0 });
+  // validade AAAA-MM-DD (vazio limpa); meio-dia UTC para nao virar o dia anterior no fuso
+  if (body.validade !== undefined) data.validade = /^\d{4}-\d{2}-\d{2}$/.test(String(body.validade || "")) ? new Date(`${body.validade}T12:00:00Z`) : null;
   if (body.ativo !== undefined) data.ativo = toBool(body.ativo, true);
   return data;
 }

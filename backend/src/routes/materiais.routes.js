@@ -16,6 +16,9 @@ function qtd(v, rotulo, { min = 0 } = {}) {
   return Math.round(n * 1000) / 1000;
 }
 
+// AAAA-MM-DD (vazio limpa); meio-dia UTC para nao virar o dia anterior no fuso
+const validadeDe = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? new Date(`${v}T12:00:00Z`) : null);
+
 const comAlerta = (m) => ({ ...m, abaixoDoMinimo: m.minimo > 0 && m.quantidade <= m.minimo });
 
 async function doTenant(req) {
@@ -49,6 +52,7 @@ router.post(
           minimo: b.minimo === undefined || b.minimo === "" ? 0 : qtd(b.minimo, "a quantidade minima"),
           custo: toInt(b.custo, 0, { min: 0 }),
           observacao: textOrNull(b.observacao),
+          validade: validadeDe(b.validade),
         },
       });
       if (quantidade > 0) {
@@ -74,6 +78,7 @@ router.patch(
     if (b.minimo !== undefined) data.minimo = b.minimo === "" ? 0 : qtd(b.minimo, "a quantidade minima");
     if (b.custo !== undefined) data.custo = toInt(b.custo, 0, { min: 0 });
     if (b.observacao !== undefined) data.observacao = textOrNull(b.observacao);
+    if (b.validade !== undefined) data.validade = validadeDe(b.validade);
     if (b.ativo !== undefined) data.ativo = toBool(b.ativo, true);
     return ok(res, comAlerta(await prisma.material.update({ where: { id: m.id }, data })));
   })

@@ -413,6 +413,7 @@ model Produto {
   custo         Int      @default(0)
   preco         Int
   estoqueMinimo Int      @default(0)
+  validade      DateTime? // o assistente pessoal avisa e responde sobre itens vencendo
   ativo         Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -975,6 +976,7 @@ model Material {
   unidade    String   @default("un")
   quantidade Float    @default(0)
   minimo     Float    @default(0)
+  validade   DateTime?
   custo      Int      @default(0) // centavos por unidade
   observacao String?
   ativo      Boolean  @default(true)

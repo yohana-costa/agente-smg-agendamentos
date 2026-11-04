@@ -161,6 +161,14 @@ async function montarResumo(tenantId) {
     prisma.alerta.count({ where: { tenantId, enviadoEm: null, tipo: { not: "RESUMO_DIARIO" }, createdAt: { gt: new Date(Date.now() - 3 * 86400000) } } }),
   ]);
 
+  // validade nos proximos 15 dias (ou ja vencida), produtos a venda e materiais
+  const limiteValidade = new Date(Date.now() + 15 * 86400000);
+  const [prodVencendo, matVencendo] = await Promise.all([
+    prisma.produto.findMany({ where: { tenantId, ativo: true, validade: { not: null, lt: limiteValidade } }, select: { nome: true } }),
+    prisma.material.findMany({ where: { tenantId, ativo: true, validade: { not: null, lt: limiteValidade } }, select: { nome: true } }),
+  ]);
+  const vencendo = [...prodVencendo, ...matVencendo].map((x) => x.nome);
+
   const baixos = [
     ...produtosBaixos.filter((p) => p.estoque <= p.estoqueMinimo).map((p) => p.nome),
     ...materiais.filter((m) => m.quantidade <= m.minimo).map((m) => m.nome),
@@ -174,6 +182,7 @@ async function montarResumo(tenantId) {
     `• Ontem: ${concluidosOntem.length} atendimento(s) concluído(s), ${brl(faturamentoOntem)}`,
     aguardando ? `• Aguardando pagamento: ${aguardando}` : "",
     baixos.length ? `• Estoque baixo: ${baixos.slice(0, 8).join(", ")}${baixos.length > 8 ? "…" : ""}` : "",
+    vencendo.length ? `• Vencendo em até 15 dias: ${vencendo.slice(0, 8).join(", ")}${vencendo.length > 8 ? "…" : ""}` : "",
     pendentes ? `• Avisos pendentes: ${pendentes} (seguem abaixo)` : "",
   ].filter(Boolean);
 
@@ -188,6 +197,7 @@ async function montarResumo(tenantId) {
     `ontem ${concluidosOntem.length} concluído(s), ${brl(faturamentoOntem)}`,
     aguardando ? `${aguardando} aguardando pagamento` : "",
     baixos.length ? `estoque baixo: ${baixos.slice(0, 6).join(", ")}${baixos.length > 6 ? ` e mais ${baixos.length - 6}` : ""}` : "",
+    vencendo.length ? `vencendo em 15 dias: ${vencendo.slice(0, 6).join(", ")}${vencendo.length > 6 ? ` e mais ${vencendo.length - 6}` : ""}` : "",
     pendentes ? `${pendentes} aviso(s) pendente(s)` : "",
   ]
     .filter(Boolean)

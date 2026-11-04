@@ -19,6 +19,7 @@ type Material = {
   observacao: string | null
   ativo: boolean
   abaixoDoMinimo: boolean
+  validade?: string | null
 }
 
 type Movimento = {
@@ -112,6 +113,7 @@ export default function MateriaisTab() {
                     <td>
                       <div className="sv-name">{m.nome}</div>
                       {m.observacao ? <div className="sv-desc" title={m.observacao}>{m.observacao}</div> : null}
+                      {m.validade ? <div className="small muted">Validade: {String(m.validade).slice(8, 10)}/{String(m.validade).slice(5, 7)}/{String(m.validade).slice(0, 4)}</div> : null}
                     </td>
                     <td className="right nowrap">
                       <span className="strong">
@@ -183,6 +185,7 @@ function MaterialModal({ material, onClose, onSaved }: { material: Material | nu
   const [minimo, setMinimo] = useState(material?.minimo ? String(material.minimo) : '')
   const [custo, setCusto] = useState(material?.custo ? (material.custo / 100).toFixed(2) : '')
   const [observacao, setObservacao] = useState(material?.observacao || '')
+  const [validade, setValidade] = useState(material?.validade ? String(material.validade).slice(0, 10) : '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -197,6 +200,7 @@ function MaterialModal({ material, onClose, onSaved }: { material: Material | nu
       minimo: minimo.replace(',', '.'),
       custo: Math.round((Number(custo.replace(',', '.')) || 0) * 100),
       observacao,
+      validade: validade || null,
     }
     try {
       if (material) await patch(`/materiais/${material.id}`, body)
@@ -270,6 +274,9 @@ function MaterialModal({ material, onClose, onSaved }: { material: Material | nu
             <input className="input" inputMode="decimal" value={custo} onChange={(e) => setCusto(e.target.value)} placeholder="0,00" />
           </Field>
         </div>
+        <Field label="Validade (opcional)" hint="O assistente pessoal avisa quando estiver perto de vencer.">
+          <input className="input" type="date" style={{ maxWidth: 200 }} value={validade} onChange={(e) => setValidade(e.target.value)} />
+        </Field>
         <Field label="Observação">
           <input className="input" value={observacao} onChange={(e) => setObservacao(e.target.value)} placeholder="Ex.: fornecedor, marca, onde fica guardado" />
         </Field>

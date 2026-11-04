@@ -10,12 +10,13 @@ const vendaService = require("../../services/venda.service");
 const { encontrarOuCriarCliente } = require("../../services/cliente.service");
 const { zonedParts, todayStr, dayRangeUtc, parsePeriod, WEEKDAY_NAMES, formatDateBr } = require("../../lib/time");
 const { brl, normalizePhone } = require("../../lib/helpers");
+const { assistenteTools } = require("./assistente.tools");
 
 const MODULOS = ["agenda", "clientes", "servicos", "produtos", "equipe", "financeiro", "desempenho"];
 
 const reais = (v) => Math.round(Number(v || 0) * 100);
 
-function buildSystemPrompt({ tenant, autorizado, ferramentas }) {
+function buildSystemPrompt({ tenant, autorizado, ferramentas, assistente = false }) {
   return [
     `Voce e o Agente de Gestao de ${tenant.nome}: funciona como um funcionario do estabelecimento dentro do WhatsApp.`,
     `Voce esta falando com ${autorizado.nome} (numero autorizado).`,
@@ -23,13 +24,18 @@ function buildSystemPrompt({ tenant, autorizado, ferramentas }) {
     "",
     "Regras:",
     "- Use apenas dados retornados pelas ferramentas. Nunca invente numeros, nomes ou horarios.",
+    "- Toda pergunta sobre dados (agenda, estoque, validade, clientes, vendas, pagamentos, duvidas pendentes...) exige chamar a ferramenta correspondente NESTA resposta, mesmo que algo parecido ja tenha sido respondido antes. Nunca responda que nao ha nada sem ter consultado.",
+    "- Nao termine as respostas com ofertas prontas como \"Posso ajudar em mais alguma coisa?\".",
     "- Para alterar dados, confirme o pedido em uma frase antes quando houver ambiguidade (ex.: qual profissional, qual cliente).",
     "- Se a pessoa pedir algo que nao esta entre suas ferramentas, diga que este numero nao tem permissao ou que a acao nao esta disponivel pelo WhatsApp.",
     "- Cancelamentos: mostre a regra e o valor a devolver (consultar primeiro) e so execute com confirmacao.",
     "- Valores monetarios nas ferramentas sao em reais (ex.: 49.90). Respostas curtas, organizadas em listas quando util.",
     "",
+    assistente
+      ? "- Voce tambem e o assistente pessoal deste numero: ele recebe os avisos do estabelecimento. Responda direto sobre agenda, horarios vagos, cancelamentos, estoque e validade, materiais, clientes inativos/retorno/desistencias, vendas e faturamento (inclusive quedas), pagamentos pendentes e duvidas de clientes esperando resposta, sempre consultando as ferramentas. Se ele responder um aviso de duvida de cliente sem citar a mensagem, peca para responder segurando a mensagem da duvida."
+      : "",
     `Ferramentas disponiveis para este numero: ${ferramentas.join(", ") || "nenhuma"}.`,
-  ].join("\n");
+  ].filter((l) => l !== "").join("\n");
 }
 
 function resumoAg(a) {
@@ -555,6 +561,7 @@ function allTools(ctx) {
         };
       },
     },
+    ...assistenteTools(ctx),
   ];
 }
 

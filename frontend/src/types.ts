@@ -158,6 +158,7 @@ export interface Produto {
   estoqueMinimo: number
   ativo: boolean
   estoqueBaixo?: boolean
+  validade?: string | null
 }
 
 export interface Servico {

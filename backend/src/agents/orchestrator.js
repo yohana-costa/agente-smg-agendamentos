@@ -182,6 +182,7 @@ const FRASES_PRONTAS = [
   /fico (muito )?feliz em (te )?ajudar/i,
   /ser(á|a) um prazer (te )?(atender|receber)/i,
   /qualquer (d(ú|u)vida|coisa),? (é|e) s(ó|o)/i,
+  /posso (te )?ajudar (em|com) (mais )?(alguma|algo|outra)/i,
 ];
 
 function limparFrasesProntas(texto) {
@@ -311,21 +312,29 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
       return { texto, usedTools: r.usedTools };
     }
 
-    // GESTAO
-    if (!config.gestaoAtivo) return null;
-    const autorizado = await prisma.numeroAutorizado.findUnique({ where: { tenantId_telefone: { tenantId: tenant.id, telefone: conversa.telefone } } });
-    if (!autorizado || !autorizado.ativo) return null;
+    // GESTAO (numeros autorizados) e assistente pessoal (numeros que recebem os avisos).
+    // O assistente consulta todos os modulos; alterar dados so com permissao no Agente de Gestao.
+    const assistente = alertas.ehNumeroDeAlerta(config, conversa.telefone);
+    if (!config.gestaoAtivo && !assistente) return null;
+    const cadastrado = await prisma.numeroAutorizado.findUnique({ where: { tenantId_telefone: { tenantId: tenant.id, telefone: conversa.telefone } } });
+    let autorizado = config.gestaoAtivo && cadastrado?.ativo ? cadastrado : null;
+    if (assistente) {
+      const alterar = autorizado && Array.isArray(autorizado.permissoes?.alterar) ? autorizado.permissoes.alterar : [];
+      autorizado = { ...(autorizado || {}), nome: autorizado?.nome || "equipe", telefone: conversa.telefone, permissoes: { consultar: [...gestaoAgent.MODULOS], alterar } };
+    }
+    if (!autorizado) return null;
     const ctx = { tenant, autorizado };
     const tools = gestaoAgent.buildTools(ctx);
     const r = await gerarResposta({
-      systemPrompt: gestaoAgent.buildSystemPrompt({ tenant, autorizado, ferramentas: tools.map((t) => t.name) }),
+      systemPrompt: gestaoAgent.buildSystemPrompt({ tenant, autorizado, ferramentas: tools.map((t) => t.name), assistente }),
       history: await historico(conversaId),
       tools,
       apiKey: config.openaiApiKey,
       model: config.openaiModel,
     });
-    for (const parte of quebrarMensagem(r.text)) await enviarTexto(tenant.id, conversa.telefone, parte, enviarOpts);
-    return { texto: r.text, usedTools: r.usedTools };
+    const textoGestao = limparFrasesProntas(r.text);
+    for (const parte of quebrarMensagem(textoGestao)) await enviarTexto(tenant.id, conversa.telefone, parte, enviarOpts);
+    return { texto: textoGestao, usedTools: r.usedTools };
   } catch (error) {
     log("agentes", "erro_processamento", { conversaId, erro: error.message });
     if (simulacao) throw error;
@@ -412,18 +421,13 @@ async function processarEvento(tenant, config, evento) {
     // Resposta da doutora/equipe a uma pergunta do agente (consultar_equipe)
     const consulta = await responderConsulta(tenant, config, evento);
     if (consulta) return consulta;
-    // Numero do assistente pessoal sem Agente de Gestao liberado: nao e cliente, nao vai para a IA
-    if (alertas.ehNumeroDeAlerta(config, contato)) {
-      const autorizadoGestao = config.gestaoAtivo
-        ? await prisma.numeroAutorizado.findUnique({ where: { tenantId_telefone: { tenantId: tenant.id, telefone: contato } } })
-        : null;
-      if (!autorizadoGestao?.ativo) return alertas.guardarMensagemDaEquipe(tenant, { ...evento, contato });
-    }
   }
   const autorizado = config.gestaoAtivo
     ? await prisma.numeroAutorizado.findUnique({ where: { tenantId_telefone: { tenantId: tenant.id, telefone: contato } } })
     : null;
-  const canal = autorizado?.ativo ? "GESTAO" : "ATENDIMENTO";
+  // Numero do assistente pessoal nunca e cliente: conversa com o Agente de Gestao (responde
+  // sobre agenda, estoque, validade, clientes, vendas, pagamentos...), mesmo sem cadastro la.
+  const canal = autorizado?.ativo || alertas.ehNumeroDeAlerta(config, contato) ? "GESTAO" : "ATENDIMENTO";
   const conversa = await obterConversa(tenant.id, contato, canal, { nomeContato: evento.profileName || null });
 
   if (evento.fromMe) {

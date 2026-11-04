@@ -13,6 +13,7 @@ export function ProdutoModal({ produto, onClose, onSaved }: { produto: Produto |
   const [preco, setPreco] = useState(produto?.preco || 0)
   const [estoqueMinimo, setEstoqueMinimo] = useState(String(produto?.estoqueMinimo ?? 0))
   const [ativo, setAtivo] = useState(produto?.ativo ?? true)
+  const [validade, setValidade] = useState(produto?.validade ? String(produto.validade).slice(0, 10) : '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -29,6 +30,7 @@ export function ProdutoModal({ produto, onClose, onSaved }: { produto: Produto |
         preco,
         estoqueMinimo: Math.max(0, Number(estoqueMinimo) || 0),
         ativo,
+        validade: validade || null,
       }
       if (!produto) body.estoque = Math.max(0, Number(estoque) || 0)
       if (produto) await patch(`/produtos/${produto.id}`, body)
@@ -83,6 +85,9 @@ export function ProdutoModal({ produto, onClose, onSaved }: { produto: Produto |
         )}
         <Field label="Quantidade mínima" hint="Abaixo disso, alerta de estoque baixo.">
           <input className="input" type="number" min={0} value={estoqueMinimo} onChange={(e) => setEstoqueMinimo(e.target.value)} />
+        </Field>
+        <Field label="Validade (opcional)" hint="O assistente pessoal avisa quando estiver perto de vencer.">
+          <input className="input" type="date" value={validade} onChange={(e) => setValidade(e.target.value)} />
         </Field>
         <div className="full">
           <Toggle checked={ativo} onChange={setAtivo} label={ativo ? 'Ativo' : 'Inativo: não aparece no site nem nas vendas'} />
