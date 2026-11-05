@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { errorMessage, get, patch, post, put } from '../../../lib/api'
+import { del, errorMessage, get, patch, post, put } from '../../../lib/api'
 import { useAuth } from '../../../lib/auth'
 import { dateTimeBr } from '../../../lib/format'
 import { useAsync } from '../../../lib/hooks'
@@ -24,6 +24,8 @@ export function Usuarios() {
   const dados = useAsync(() => get<UsuariosDados>('/configuracoes/usuarios'), [])
   const [novo, setNovo] = useState(false)
   const [redefinir, setRedefinir] = useState<Usuario | null>(null)
+  const [mudarPerfil, setMudarPerfil] = useState<Usuario | null>(null)
+  const [excluir, setExcluir] = useState<Usuario | null>(null)
   const [senha, setSenha] = useState<{ titulo: string; email: string; senha: string } | null>(null)
   const [ocupado, setOcupado] = useState<string | null>(null)
   const [erroLista, setErroLista] = useState('')
@@ -84,9 +86,21 @@ export function Usuarios() {
                     <Toggle checked={u.ativo} disabled={u.perfil === 'DONO' || ocupado === u.id} onChange={(v) => alternar(u, v)} />
                   </td>
                   <td className="right">
-                    <button className="btn btn-sm" onClick={() => setRedefinir(u)}>
-                      Redefinir senha
-                    </button>
+                    <div className="row" style={{ gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      {u.perfil !== 'DONO' ? (
+                        <button className="btn btn-sm" onClick={() => setMudarPerfil(u)}>
+                          Alterar perfil
+                        </button>
+                      ) : null}
+                      <button className="btn btn-sm" onClick={() => setRedefinir(u)}>
+                        Redefinir senha
+                      </button>
+                      {u.perfil !== 'DONO' ? (
+                        <button className="btn btn-sm btn-danger" onClick={() => setExcluir(u)}>
+                          Excluir
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -121,6 +135,38 @@ export function Usuarios() {
           <p>
             Uma nova senha temporária será gerada para <strong>{redefinir.nome}</strong> ({redefinir.email}). A senha atual deixa de funcionar imediatamente.
           </p>
+        </ConfirmModal>
+      ) : null}
+
+      {mudarPerfil ? (
+        <AlterarPerfil
+          usuario={mudarPerfil}
+          profissionais={d.profissionais}
+          onClose={() => setMudarPerfil(null)}
+          onSalvo={() => {
+            setMudarPerfil(null)
+            dados.reload()
+          }}
+        />
+      ) : null}
+
+      {excluir ? (
+        <ConfirmModal
+          title="Excluir usuário"
+          confirmLabel="Excluir"
+          danger
+          onClose={() => setExcluir(null)}
+          onConfirm={async () => {
+            await del(`/configuracoes/usuarios/${excluir.id}`)
+            dados.reload()
+          }}
+        >
+          <p>
+            O login de <strong>{excluir.nome}</strong> ({excluir.email}) será excluído e a pessoa não conseguirá mais entrar no sistema. O e-mail fica livre para um novo cadastro.
+          </p>
+          {excluir.profissionalId ? (
+            <p className="small muted">A ficha de profissional na Equipe, com agenda e histórico, continua como está.</p>
+          ) : null}
         </ConfirmModal>
       ) : null}
 
@@ -197,6 +243,87 @@ function NovoUsuario({ onClose, onCriado }: { onClose: () => void; onCriado: (em
           <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         </Field>
         <p className="small muted">Uma senha temporária será gerada e mostrada uma única vez.</p>
+        <ErrorBanner message={erro} />
+      </div>
+    </Modal>
+  )
+}
+
+function AlterarPerfil({
+  usuario,
+  profissionais,
+  onClose,
+  onSalvo,
+}: {
+  usuario: Usuario
+  profissionais: UsuariosDados['profissionais']
+  onClose: () => void
+  onSalvo: () => void
+}) {
+  const [perfil, setPerfil] = useState<PerfilEditavel>(usuario.perfil === 'PROFISSIONAL' ? 'PROFISSIONAL' : 'RECEPCAO')
+  const livres = profissionais.filter((p) => !p.usuarioId || p.usuarioId === usuario.id)
+  const sugerido = usuario.profissionalId || livres.find((p) => p.nome.trim().toLowerCase() === usuario.nome.trim().toLowerCase())?.id || ''
+  const [profissionalId, setProfissionalId] = useState(sugerido)
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  async function salvar() {
+    if (perfil === 'PROFISSIONAL' && !profissionalId) return setErro('Escolha qual profissional da Equipe é esta pessoa.')
+    setSalvando(true)
+    setErro('')
+    try {
+      await patch(`/configuracoes/usuarios/${usuario.id}`, perfil === 'PROFISSIONAL' ? { perfil, profissionalId } : { perfil })
+      onSalvo()
+    } catch (e) {
+      setErro(errorMessage(e))
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <Modal
+      title={`Alterar perfil de ${usuario.nome}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose} disabled={salvando}>
+            Cancelar
+          </button>
+          <button className="btn btn-primary" onClick={salvar} disabled={salvando}>
+            {salvando ? 'Salvando...' : 'Salvar'}
+          </button>
+        </>
+      }
+    >
+      <div className="stack">
+        <Field label="Perfil">
+          <select className="select" value={perfil} onChange={(e) => setPerfil(e.target.value as PerfilEditavel)}>
+            <option value="RECEPCAO">Recepção</option>
+            <option value="PROFISSIONAL">Profissional</option>
+          </select>
+        </Field>
+        {perfil === 'PROFISSIONAL' ? (
+          livres.length ? (
+            <Field label="Qual profissional da Equipe é esta pessoa?">
+              <select className="select" value={profissionalId} onChange={(e) => setProfissionalId(e.target.value)}>
+                <option value="">Escolha...</option>
+                {livres.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nome}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : (
+            <p className="small muted">
+              Todos os profissionais da Equipe já têm login. Cadastre esta pessoa primeiro em Catálogo e Equipe &gt; Equipe e depois volte aqui.
+            </p>
+          )
+        ) : usuario.profissionalId ? (
+          <p className="small muted">Esta pessoa deixa de operar a própria agenda e passa a ver o que o perfil Recepção libera. A ficha na Equipe continua.</p>
+        ) : null}
+        <p className="small muted">O login e a senha continuam os mesmos.</p>
         <ErrorBanner message={erro} />
       </div>
     </Modal>

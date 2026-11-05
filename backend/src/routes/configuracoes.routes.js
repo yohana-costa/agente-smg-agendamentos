@@ -174,8 +174,15 @@ router.get(
       orderBy: { nome: "asc" },
     });
     const tenant = await prisma.tenant.findUnique({ where: { id: req.auth.tenantId } });
+    // para ligar um login ao profissional da Equipe ao mudar o perfil
+    const profissionais = await prisma.profissional.findMany({
+      where: { tenantId: req.auth.tenantId, ativo: true },
+      select: { id: true, nome: true, usuario: { select: { id: true } } },
+      orderBy: { nome: "asc" },
+    });
     return ok(res, {
       usuarios,
+      profissionais: profissionais.map((p) => ({ id: p.id, nome: p.nome, usuarioId: p.usuario?.id || null })),
       abas: ABAS,
       permissoes: { RECEPCAO: resolvePermissoes(tenant, "RECEPCAO"), PROFISSIONAL: resolvePermissoes(tenant, "PROFISSIONAL") },
       padrao: PERMISSOES_PADRAO,
@@ -207,6 +214,25 @@ router.patch(
     const data = {};
     if (req.body?.nome !== undefined) data.nome = requireText(req.body.nome, "Nome");
     if (req.body?.ativo !== undefined) data.ativo = toBool(req.body.ativo);
+    if (req.body?.perfil !== undefined) {
+      if (u.perfil === "DONO") throw badRequest("O perfil do dono nao pode ser alterado.");
+      if (req.body.perfil === "RECEPCAO") {
+        // a ficha do profissional continua na Equipe, so perde o login
+        data.perfil = "RECEPCAO";
+        data.profissionalId = null;
+      } else if (req.body.perfil === "PROFISSIONAL") {
+        const p = await prisma.profissional.findFirst({
+          where: { id: String(req.body.profissionalId || ""), tenantId: req.auth.tenantId },
+          include: { usuario: { select: { id: true } } },
+        });
+        if (!p) throw badRequest("Escolha o profissional da Equipe ligado a este login.");
+        if (p.usuario && p.usuario.id !== u.id) throw conflict(`${p.nome} ja tem outro login. Exclua ou altere aquele login primeiro.`);
+        data.perfil = "PROFISSIONAL";
+        data.profissionalId = p.id;
+      } else {
+        throw badRequest("Perfil invalido.");
+      }
+    }
     let senhaTemporaria = null;
     if (req.body?.redefinirSenha) {
       senhaTemporaria = crypto.randomBytes(4).toString("hex");
@@ -214,6 +240,18 @@ router.patch(
     }
     await prisma.usuario.update({ where: { id: u.id }, data });
     return ok(res, { atualizado: true, senhaTemporaria });
+  })
+);
+
+// exclui so o login; a ficha do profissional (agenda, historico) continua na Equipe
+router.delete(
+  "/usuarios/:id",
+  asyncHandler(async (req, res) => {
+    const u = await prisma.usuario.findFirst({ where: { id: req.params.id, tenantId: req.auth.tenantId } });
+    if (!u) throw notFound("Usuario nao encontrado.");
+    if (u.perfil === "DONO") throw badRequest("O dono nao pode ser excluido.");
+    await prisma.usuario.delete({ where: { id: u.id } });
+    return ok(res, { excluido: true });
   })
 );
 

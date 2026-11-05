@@ -31,6 +31,7 @@ export interface PermissoesPerfil {
 
 export interface UsuariosDados {
   usuarios: Array<{ id: string; nome: string; email: string; perfil: 'DONO' | 'RECEPCAO' | 'PROFISSIONAL'; ativo: boolean; profissionalId: string | null; ultimoLoginEm: string | null; createdAt: string }>
+  profissionais: Array<{ id: string; nome: string; usuarioId: string | null }>
   abas: Aba[]
   permissoes: { RECEPCAO: PermissoesPerfil; PROFISSIONAL: PermissoesPerfil }
   padrao: { RECEPCAO: PermissoesPerfil; PROFISSIONAL: PermissoesPerfil }
