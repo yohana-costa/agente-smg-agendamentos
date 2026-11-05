@@ -85,4 +85,23 @@ async function enviarTexto(tenantId, telefone, texto, { autor = "SISTEMA", canal
   return resultado;
 }
 
-module.exports = { webhookUrls, getAgenteConfig, conexaoConfigurada, obterConversa, registrarMensagem, enviarTexto };
+const ORDEM_STATUS = { sent: 1, delivered: 2, read: 3 };
+
+// Status de entrega da Meta para uma mensagem enviada pelo sistema. Falha nao e sobrescrita, e
+// status fora de ordem (delivered depois de read) e ignorado.
+async function registrarStatusEnvio(tenantId, evento) {
+  if (!evento.messageId || !evento.status) return { status: "ignorado" };
+  const msg = await prisma.mensagem.findFirst({
+    where: { externalId: evento.messageId, conversa: { tenantId } },
+    select: { id: true, statusEnvio: true },
+  });
+  if (!msg) return { status: "sem_mensagem" };
+  if (msg.statusEnvio === "failed") return { status: "ja_falhou" };
+  const falhou = evento.status === "failed";
+  if (!falhou && (ORDEM_STATUS[evento.status] || 0) <= (ORDEM_STATUS[msg.statusEnvio] || 0)) return { status: "sem_mudanca" };
+  await prisma.mensagem.update({ where: { id: msg.id }, data: { statusEnvio: evento.status, erroEnvio: falhou ? evento.erro || "sem motivo" : null } });
+  if (falhou) log("whatsapp", "entrega_falhou", { tenantId, to: evento.contato, erro: evento.erro });
+  return { status: evento.status };
+}
+
+module.exports = { webhookUrls, getAgenteConfig, conexaoConfigurada, obterConversa, registrarMensagem, enviarTexto, registrarStatusEnvio };

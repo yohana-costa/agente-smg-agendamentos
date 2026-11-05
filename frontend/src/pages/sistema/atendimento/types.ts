@@ -9,6 +9,9 @@ export interface Mensagem {
   conversaId: string
   autor: AutorMensagem
   texto: string
+  /** entrega na API oficial: sent | delivered | read | failed */
+  statusEnvio?: string | null
+  erroEnvio?: string | null
   createdAt: string
 }
 

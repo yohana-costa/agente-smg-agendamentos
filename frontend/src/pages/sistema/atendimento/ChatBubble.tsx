@@ -9,18 +9,27 @@ export function ChatBubble({
   quando,
   lado,
   rotulo,
+  erroEnvio,
 }: {
   autor: AutorMensagem
   texto: string
   quando?: string | null
   lado: 'esq' | 'dir'
   rotulo?: string
+  /** preenchido quando o WhatsApp avisou que a mensagem nao foi entregue */
+  erroEnvio?: string | null
 }) {
   return (
     <div className={`at-msg-row ${lado === 'dir' ? 'at-right' : 'at-left'}`}>
       <div className={`at-bubble at-autor-${autor}`}>
         <div className="at-bubble-author">{rotulo || AUTOR_LABEL[autor]}</div>
         <div className="at-bubble-text">{texto}</div>
+        {erroEnvio ? (
+          <div className="at-bubble-falha" title={erroEnvio}>
+            ⚠ Não entregue pelo WhatsApp
+            {/131047/.test(erroEnvio) ? ': a cliente não falou com o número nas últimas 24h.' : '.'}
+          </div>
+        ) : null}
         {quando ? <div className="at-bubble-time">{timeBr(quando)}</div> : null}
       </div>
     </div>

@@ -177,7 +177,7 @@ export function AssistentePessoal({ isDono }: { isDono: boolean }) {
       {oficial ? (
         <Card
           title="Templates da Meta"
-          subtitle="No WhatsApp oficial, mensagem para quem não falou com o número nas últimas 24h só sai por template aprovado. Todos os avisos (inclusive o resumo diário) saem por um template universal de utilidade, que leva o aviso inteiro, então tudo chega sem precisar responder. Fora da janela de 24h cada envio custa alguns centavos na conta do WhatsApp."
+          subtitle="No WhatsApp oficial, mensagem para quem não falou com o número nas últimas 24h só sai por template aprovado. Todos os avisos (inclusive o resumo diário) saem por um template universal de utilidade, que leva o aviso inteiro, então tudo chega sem precisar responder. O lembrete de horário e os avisos de agendamento para a cliente também usam template quando ela não falou com o número nas últimas 24h. Fora da janela de 24h cada envio custa alguns centavos na conta do WhatsApp."
         >
           <div className="stack">
             <Field label="WABA ID do número conectado" hint="Fica no painel da Datafy, nos dados do canal (WhatsApp Business Account ID).">

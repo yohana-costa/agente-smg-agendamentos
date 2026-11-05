@@ -794,6 +794,9 @@ model Mensagem {
   autor      AutorMensagem
   texto      String
   externalId String?
+  // entrega na API oficial (webhook statuses da Meta): sent | delivered | read | failed
+  statusEnvio String?
+  erroEnvio   String?
   createdAt  DateTime      @default(now())
 
   conversa Conversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)

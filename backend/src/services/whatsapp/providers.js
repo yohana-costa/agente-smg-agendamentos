@@ -194,6 +194,18 @@ function parseMeta(payload) {
           profileName: "",
         });
       }
+      // Entrega do que o sistema enviou: sent -> delivered -> read, ou failed (com o motivo).
+      for (const st of value.statuses || []) {
+        const e = st?.errors?.[0];
+        events.push({
+          provider: "meta",
+          eventType: "status",
+          messageId: String(st?.id || ""),
+          status: String(st?.status || ""),
+          erro: e ? [e.code, e.title, e.error_data?.details].filter(Boolean).join(": ") : null,
+          contato: normalizePhone(st?.recipient_id),
+        });
+      }
     }
   }
   return events;

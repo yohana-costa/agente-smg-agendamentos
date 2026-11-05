@@ -228,7 +228,7 @@ export function ConversaAberta({ id, tick, onChanged, onBack }: { id: string; ti
           return (
             <Fragment key={m.id}>
               {separador ? <ChatDay label={dia} /> : null}
-              <ChatBubble autor={m.autor} texto={m.texto} quando={m.createdAt} lado={m.autor === 'CLIENTE' ? 'esq' : 'dir'} rotulo={m.autor === 'CLIENTE' ? conversa.nome : undefined} />
+              <ChatBubble autor={m.autor} texto={m.texto} quando={m.createdAt} lado={m.autor === 'CLIENTE' ? 'esq' : 'dir'} rotulo={m.autor === 'CLIENTE' ? conversa.nome : undefined} erroEnvio={m.statusEnvio === 'failed' ? m.erroEnvio || 'sem motivo' : null} />
             </Fragment>
           )
         })}

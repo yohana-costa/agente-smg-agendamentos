@@ -66,6 +66,7 @@
 .at-bubble-author { font-size: 11px; font-weight: 700; margin-bottom: 2px; }
 .at-bubble-text { white-space: pre-wrap; font-size: 14px; }
 .at-bubble-time { font-size: 10px; color: var(--text-soft); text-align: right; margin-top: 2px; }
+.at-bubble-falha { margin-top: 6px; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); }
 .at-autor-CLIENTE { background: hsl(var(--muted)); }
 .at-autor-CLIENTE .at-bubble-author { color: hsl(var(--muted-foreground)); }
 .at-autor-AGENTE { background: var(--gradient); color: #fff; }

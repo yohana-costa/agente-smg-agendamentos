@@ -14,6 +14,7 @@ const { normalizePhone, log, brl } = require("../lib/helpers");
 const { todayStr, dayRangeUtc, addDays, zonedParts } = require("../lib/time");
 const { getAgenteConfig, obterConversa, registrarMensagem, enviarTexto } = require("./whatsapp/whatsapp.service");
 const { sendMetaTemplate, criarTemplateMeta, listarTemplatesMeta } = require("./whatsapp/providers");
+const { MODELOS_CLIENTE } = require("./whatsapp/templates-cliente");
 
 const TIPOS = ["NOVO_AGENDAMENTO", "CANCELAMENTO", "EQUIPE", "RESUMO_DIARIO"];
 // Um template so para tudo (avisos e resumo): "Aviso do {{1}}: {{2}}. Toque em Ver alertas...".
@@ -303,6 +304,8 @@ const MODELOS = [
       { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Ver alertas" }] },
     ],
   },
+  // lembrete e avisos de agendamento para a cliente (automacoes)
+  ...MODELOS_CLIENTE,
 ];
 
 function wabaDe(config) {
@@ -357,4 +360,5 @@ module.exports = {
   statusTemplates,
   criarTemplates,
   montarResumo,
+  janelaAberta,
 };

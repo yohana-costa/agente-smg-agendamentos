@@ -9,7 +9,7 @@ const events = require("../lib/events");
 const { gerarResposta } = require("../lib/ai-client");
 const { normalizePhone, log } = require("../lib/helpers");
 const { addMinutes } = require("../lib/time");
-const { getAgenteConfig, obterConversa, registrarMensagem, enviarTexto } = require("../services/whatsapp/whatsapp.service");
+const { getAgenteConfig, obterConversa, registrarMensagem, enviarTexto, registrarStatusEnvio } = require("../services/whatsapp/whatsapp.service");
 const { parseUazapi, parseMeta } = require("../services/whatsapp/providers");
 const { textoDaMidia } = require("../services/whatsapp/midia.service");
 const historicoCoex = require("../services/whatsapp/historico.service");
@@ -554,7 +554,9 @@ async function processarWebhook({ tenantSlug, provider, payload, headers = {}, q
   }
   const eventos = provider === "meta" ? parseMeta(payload) : parseUazapi(payload);
   const resultados = [];
-  for (const evento of eventos) resultados.push(await processarEvento(tenant, config, evento));
+  for (const evento of eventos) {
+    resultados.push(evento.eventType === "status" ? await registrarStatusEnvio(tenant.id, evento) : await processarEvento(tenant, config, evento));
+  }
   return resultados;
 }
 

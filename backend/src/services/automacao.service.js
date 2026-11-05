@@ -1,9 +1,12 @@
 // Automacoes (aba Automacoes): mensagens automaticas ao cliente pelo WhatsApp do estabelecimento.
 const prisma = require("../lib/prisma");
 const env = require("../config/env");
-const { enviarTexto } = require("./whatsapp/whatsapp.service");
+const { enviarTexto, getAgenteConfig, obterConversa, registrarMensagem } = require("./whatsapp/whatsapp.service");
+const { sendMetaTemplate } = require("./whatsapp/providers");
+const { templateDaAutomacao, textoDoTemplate } = require("./whatsapp/templates-cliente");
+const { janelaAberta } = require("./alertas.service");
 const { formatDateBr, formatTimeBr } = require("../lib/time");
-const { brl, log } = require("../lib/helpers");
+const { brl, log, normalizePhone } = require("../lib/helpers");
 
 const AUTOMACOES_PADRAO = [
   {
@@ -85,6 +88,26 @@ async function carregarAgendamento(agendamentoId) {
   });
 }
 
+// WhatsApp oficial com a janela de 24h fechada: so template aprovado chega. Texto livre a Meta
+// aceita na hora e descarta depois, e a mensagem ficava no Atendimento como se tivesse ido.
+async function enviarAoCliente(tenantId, agendamento, tipo, vars, texto) {
+  const telefone = normalizePhone(agendamento.cliente?.telefone);
+  const config = await getAgenteConfig(tenantId);
+  if (!telefone || config.whatsappProvider !== "meta" || env.whatsappDryRun || (await janelaAberta(tenantId, config, telefone))) {
+    return enviarTexto(tenantId, agendamento.cliente?.telefone, texto, { autor: "SISTEMA", clienteId: agendamento.clienteId });
+  }
+  const t = templateDaAutomacao(tipo, vars, texto);
+  if (!t) return { enviado: false, motivo: "fora_da_janela_24h_sem_template" };
+  try {
+    const r = await sendMetaTemplate(config.whatsappConfig, { to: telefone, name: t.name, params: t.params });
+    const conversa = await obterConversa(tenantId, telefone, "ATENDIMENTO", { clienteId: agendamento.clienteId });
+    await registrarMensagem(conversa, { autor: "SISTEMA", texto: textoDoTemplate(t.name, t.params), externalId: r.externalId });
+    return { enviado: true, externalId: r.externalId, template: t.name };
+  } catch (error) {
+    return { enviado: false, motivo: `template ${t.name}: ${error.message}` };
+  }
+}
+
 /**
  * Envia uma automacao uma unica vez por referencia (AutomacaoEnvio garante idempotencia).
  * Retorna false quando desativada, ja enviada ou sem dados.
@@ -105,12 +128,13 @@ async function dispararAutomacao(tipo, agendamentoId, { extras = {}, referencia,
     }
   }
 
-  const texto = renderTemplate(automacao.texto, varsAgendamento(agendamento, tenant, extras));
-  const r = await enviarTexto(tenant.id, agendamento.cliente.telefone, texto, { autor: "SISTEMA", clienteId: agendamento.clienteId });
+  const vars = varsAgendamento(agendamento, tenant, extras);
+  const texto = renderTemplate(automacao.texto, vars);
+  const r = await enviarAoCliente(tenant.id, agendamento, tipo, vars, texto);
   if (unicaVez && !r.enviado) {
     await prisma.automacaoEnvio.updateMany({ where: { tipo, referencia: ref }, data: { sucesso: false, erro: r.motivo || null } });
   }
-  log("automacoes", "disparo", { tipo, agendamentoId, enviado: r.enviado, motivo: r.motivo });
+  log("automacoes", "disparo", { tipo, agendamentoId, enviado: r.enviado, motivo: r.motivo, template: r.template });
   return true;
 }
 
