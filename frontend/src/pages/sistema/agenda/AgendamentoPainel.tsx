@@ -1,10 +1,10 @@
 // Painel do agendamento (escopo 6.4): dados, pagamento, resumo do cliente e botoes por status.
 import { useEffect, useState, type ReactNode } from 'react'
-import { errorMessage, get, post } from '../../../lib/api'
+import { del, errorMessage, get, post } from '../../../lib/api'
 import { brl, countdown, dateLong, dateTimeBr, duration, FORMA_PAGAMENTO, ORIGEM, phone } from '../../../lib/format'
 import { useAsync, useCountdown } from '../../../lib/hooks'
 import { useAuth } from '../../../lib/auth'
-import { Drawer, ErrorBanner, Loading, StatusBadge, SuccessBanner } from '../../../components/ui'
+import { ConfirmModal, Drawer, ErrorBanner, Loading, StatusBadge, SuccessBanner } from '../../../components/ui'
 import type { Agendamento, Pagamento } from '../../../types'
 import { AdicionarProdutoModal, CancelarModal, FinalizarModal, PagamentoLocalModal, ReagendarModal } from './AcoesModais'
 import { AlertIcon, PagamentoIcon } from './icons'
@@ -12,7 +12,7 @@ import type { NovoPrefill, Referencias } from './types'
 import { pagamentoPixPendente } from './utils'
 import { PixBox } from './Widgets'
 
-type Acao = 'cancelar' | 'noshow' | 'reagendar' | 'finalizar' | 'pagLocal' | 'produto' | null
+type Acao = 'cancelar' | 'noshow' | 'reagendar' | 'finalizar' | 'pagLocal' | 'produto' | 'excluir' | null
 
 const STATUS_PAGAMENTO: Record<Pagamento['status'], string> = {
   PENDENTE: 'Pendente',
@@ -135,6 +135,14 @@ export function AgendamentoPainel({
     }
   }
 
+  // concluido e pagamento recebido o backend recusa, com a explicacao
+  const podeExcluir = Boolean(ag && !readOnly && usuario?.perfil !== 'PROFISSIONAL' && ag.status !== 'CONCLUIDO')
+  const excluir = podeExcluir ? (
+    <button className="btn btn-ghost danger-text" style={{ marginRight: 'auto' }} onClick={() => setAcao('excluir')}>
+      Excluir
+    </button>
+  ) : null
+
   return (
     <>
       <Drawer
@@ -148,7 +156,7 @@ export function AgendamentoPainel({
           )
         }
         onClose={onClose}
-        footer={botoes ? <div className="ag-panel-actions">{botoes}</div> : ag ? <span className="small muted">{readOnly ? 'Agenda de outro profissional: somente leitura.' : 'Somente consulta.'}</span> : null}
+        footer={botoes || excluir ? <div className="ag-panel-actions">{excluir}{botoes}</div> : ag ? <span className="small muted">{readOnly ? 'Agenda de outro profissional: somente leitura.' : 'Somente consulta.'}</span> : null}
       >
         {!ag && loading ? <Loading /> : null}
         {!ag && !loading ? <ErrorBanner message={error || 'Agendamento não encontrado.'} /> : null}
@@ -308,6 +316,24 @@ export function AgendamentoPainel({
         ) : null}
       </Drawer>
 
+      {ag && acao === 'excluir' ? (
+        <ConfirmModal
+          title="Excluir agendamento"
+          confirmLabel="Excluir"
+          danger
+          onClose={() => setAcao(null)}
+          onConfirm={async () => {
+            await del(`/agenda/agendamentos/${ag.id}`)
+            onChanged('Agendamento excluído.')
+            onClose()
+          }}
+        >
+          <p>
+            O agendamento de <strong>{ag.cliente.nome}</strong> em <strong>{dateTimeBr(ag.inicio)}</strong> será apagado da agenda e o horário fica livre. Não dá para desfazer.
+          </p>
+          <p className="small muted">A cliente não recebe aviso. Se quiser avisar, use Cancelar em vez de Excluir.</p>
+        </ConfirmModal>
+      ) : null}
       {ag && acao === 'cancelar' ? <CancelarModal ag={ag} tipo="CANCELAMENTO" onClose={() => setAcao(null)} onDone={(t) => { setAcao(null); concluido(t) }} /> : null}
       {ag && acao === 'noshow' ? <CancelarModal ag={ag} tipo="NO_SHOW" onClose={() => setAcao(null)} onDone={(t) => { setAcao(null); concluido(t) }} /> : null}
       {ag && acao === 'pagLocal' ? <PagamentoLocalModal ag={ag} onClose={() => setAcao(null)} onDone={concluido} /> : null}

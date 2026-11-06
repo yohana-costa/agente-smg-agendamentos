@@ -593,6 +593,39 @@ async function cancelar(tenantId, id, { tipo = "CANCELAMENTO", porEstabeleciment
   return { agendamento: await obterSerializado(tenantId, id), reembolso: calculo, reembolsos };
 }
 
+// ---------- exclusao ----------
+
+/**
+ * Apaga o agendamento (lancado errado, teste). Nao avisa a cliente.
+ * Bloqueia atendimento concluido e agendamento com dinheiro recebido: esses tem que continuar
+ * no Financeiro e no historico (para isso existe o Cancelar, com reembolso).
+ */
+async function excluir(tenantId, id) {
+  const ag = await obter(tenantId, id);
+  if (ag.status === "CONCLUIDO") throw badRequest("Atendimento ja finalizado nao pode ser excluido: ele faz parte do Financeiro e do historico da cliente.");
+  if (ag.pagamentos.some((p) => ["APROVADO", "REEMBOLSADO", "REEMBOLSADO_PARCIAL"].includes(p.status))) {
+    throw badRequest("Este agendamento tem pagamento recebido. Use Cancelar (com reembolso, se for o caso) para nao sumir do Financeiro.");
+  }
+  // cancelado/no-show ja passaram por isso no cancelar
+  if (["AGUARDANDO_PAGAMENTO", "CONFIRMADO", "EM_ATENDIMENTO"].includes(ag.status)) {
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    await pagamentos.cancelarCobrancasPendentes({ tenant, agendamentoId: id });
+    await fidelidade.estornarRecompensa(ag);
+    await pacotes.devolverDoAgendamento(id);
+  }
+  for (const item of ag.produtos.filter((x) => x.estoqueBaixado)) {
+    await prisma.produto.update({ where: { id: item.produtoId }, data: { estoque: { increment: item.quantidade } } });
+  }
+  await prisma.$transaction([
+    prisma.pagamento.deleteMany({ where: { agendamentoId: id, tenantId } }),
+    prisma.automacaoEnvio.deleteMany({ where: { tenantId, OR: [{ referencia: id }, { referencia: { startsWith: `${id}:` } }] } }),
+    prisma.agendamento.delete({ where: { id } }),
+  ]);
+  log("agenda", "excluido", { tenantId, id, status: ag.status, cliente: ag.cliente?.nome });
+  notificarAgenda(tenantId, id, "excluido");
+  return { excluido: true };
+}
+
 // ---------- reagendamento ----------
 
 /**
@@ -742,6 +775,7 @@ module.exports = {
   finalizar,
   simularCancelamento,
   cancelar,
+  excluir,
   simularReagendamento,
   reagendar,
   reenviarLink,

@@ -316,6 +316,13 @@ router.post(
     })
   )
 );
+router.delete(
+  "/agendamentos/:id",
+  acao((req) => {
+    if (req.auth.perfil === "PROFISSIONAL") throw forbidden("Apenas dono e recepcao podem excluir agendamentos.");
+    return agendamentoService.excluir(req.auth.tenantId, req.params.id);
+  })
+);
 router.post(
   "/agendamentos/:id/reagendar",
   acao(async (req) => {
