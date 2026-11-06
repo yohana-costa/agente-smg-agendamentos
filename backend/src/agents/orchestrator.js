@@ -292,6 +292,15 @@ async function falasDaEquipe(conversaId) {
   return msgs.reverse().map((m) => String(m.texto || "").replace(/\s+/g, " ").trim()).filter(Boolean);
 }
 
+const AFIRMA_AGENDOU = /\b(agendei|reservei|marquei|remarquei|j[aá] (agendei|marquei|reservei)|deixei (agendad|marcad|reservad))/i;
+const AVISO_AFIRMOU_SEM_AGENDAR =
+  "ATENCAO (interno): sua resposta dizia que voce agendou/reservou/marcou, mas nenhuma ferramenta de agendamento foi executada com sucesso nesta resposta: NADA foi registrado na agenda. Se ja tem servico, profissional, data, hora e nome, chame `criar_agendamento` agora. Se falta algo, pergunte. Se o agendamento ja existia antes (confira com `meus_agendamentos`), diga isso sem criar outro. Nunca diga que agendou sem a ferramenta confirmar (ok: true).";
+
+function afirmouSemAgendar(r) {
+  if (!AFIRMA_AGENDOU.test(String(r?.text || ""))) return false;
+  return !(r.usedTools || []).some((t) => t.ok && ["criar_agendamento", "reagendar_agendamento"].includes(t.name));
+}
+
 async function processarConversa(conversaId, { simulacao = false } = {}) {
   if (running.has(conversaId)) {
     agendar(conversaId, { simulacao });
@@ -333,22 +342,38 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
       const equipePassouValores = falas.some((t) => /\$|\breais\b|\br\s?\d/i.test(t));
       const ctx = { tenant, config, telefone: conversa.telefone, cliente: null, escalonamento: null, pagamentoDisponivel, equipePassouValores };
       ctx.cliente = conversa.clienteId ? await prisma.cliente.findUnique({ where: { id: conversa.clienteId } }) : null;
-      const r = await gerarResposta({
-        systemPrompt: atendimentoAgent.buildSystemPrompt({
-          tenant,
-          config,
-          cliente: ctx.cliente,
-          pagamentoDisponivel,
-          linkJaEnviado,
-          mesCitado: await mesCitadoNaConversa(conversaId),
-          falasDaEquipe: falas,
-        }),
-        history: await historico(conversaId),
-        tools: atendimentoAgent.buildTools(ctx),
-        shouldStop: () => Boolean(ctx.escalonamento),
-        apiKey: config.openaiApiKey,
-        model: config.openaiModel,
+      const systemPrompt = atendimentoAgent.buildSystemPrompt({
+        tenant,
+        config,
+        cliente: ctx.cliente,
+        pagamentoDisponivel,
+        linkJaEnviado,
+        mesCitado: await mesCitadoNaConversa(conversaId),
+        falasDaEquipe: falas,
       });
+      const history = await historico(conversaId);
+      const gerar = (extra = []) =>
+        gerarResposta({
+          systemPrompt,
+          history: [...history, ...extra],
+          tools: atendimentoAgent.buildTools(ctx),
+          shouldStop: () => Boolean(ctx.escalonamento),
+          apiKey: config.openaiApiKey,
+          model: config.openaiModel,
+        });
+      let r = await gerar();
+      // "Agendei o buco as 12h" sem ter chamado criar_agendamento (Studio Bella, 06/11/2026: a
+      // cliente saiu achando que estava marcada e nada existia na agenda). Refaz uma vez; se
+      // insistir, leva o pedido para a equipe em vez de mandar a confirmacao falsa.
+      // Falar de um agendamento criado antes ("sim, marquei") tambem cai aqui: o aviso manda conferir
+      // com meus_agendamentos, e recriar o mesmo horario daria conflito, entao nao duplica.
+      if (afirmouSemAgendar(r) && !ctx.escalonamento) {
+        log("agentes", "afirmou_agendar_sem_ferramenta", { conversaId, texto: String(r.text).slice(0, 200) });
+        r = await gerar([{ role: "system", content: AVISO_AFIRMOU_SEM_AGENDAR }]);
+        if (afirmouSemAgendar(r) && !ctx.escalonamento) {
+          ctx.escalonamento = { tipo: "agendamento", motivo: "A IA tentou confirmar um agendamento sem registrar no sistema. Confira a conversa e marque pela agenda.", mensagemCliente: "Um minutinho, vou confirmar esse horario com a equipe." };
+        }
+      }
       if (ctx.cliente && !conversa.clienteId) await prisma.conversa.update({ where: { id: conversaId }, data: { clienteId: ctx.cliente.id } });
 
       // A cliente mandou outra mensagem enquanto a resposta era gerada: essa resposta ja nasceu

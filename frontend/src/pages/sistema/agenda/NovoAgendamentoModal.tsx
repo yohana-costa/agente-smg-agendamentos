@@ -34,7 +34,9 @@ export function NovoAgendamentoModal({
   const [hora, setHora] = useState(prefill.hora || '')
   const [produtos, setProdutos] = useState<Record<string, number>>({})
   const semPagamentoOnline = refs.pagamentoOnline === false
-  const [pagamento, setPagamento] = useState<FormaPagamento>(semPagamentoOnline ? 'LOCAL' : 'LINK')
+  // Padrao "pagar no local": com "Enviar link" o agendamento manual expira em 15 minutos se a
+  // cliente nao pagar, e some da agenda (aconteceu na Studio Bella quando o Mercado Pago foi ligado).
+  const [pagamento, setPagamento] = useState<FormaPagamento>('LOCAL')
   const [observacoes, setObservacoes] = useState('')
   const [cupom, setCupom] = useState('')
   const [buscaServico, setBuscaServico] = useState('')
@@ -323,9 +325,9 @@ export function NovoAgendamentoModal({
               semPagamentoOnline
                 ? [{ key: 'LOCAL', label: 'Pagar no local' }]
                 : [
+                    { key: 'LOCAL', label: 'Pagar no local' },
                     { key: 'LINK', label: 'Enviar link' },
                     { key: 'PIX', label: 'Pix agora' },
-                    { key: 'LOCAL', label: 'Pagar no local' },
                   ]
             }
             value={pagamento}
@@ -344,7 +346,7 @@ export function NovoAgendamentoModal({
           ) : null}
           <div className="small muted">
             {pagamento === 'LINK'
-              ? 'O cliente recebe o link pelo WhatsApp e o agendamento fica Aguardando pagamento (reserva de 15 minutos).'
+              ? 'O cliente recebe o link pelo WhatsApp e o agendamento fica Aguardando pagamento. Se não pagar em 15 minutos, a reserva cai e sai da agenda.'
               : pagamento === 'PIX'
                 ? 'O QR code do Pix aparece na tela logo após criar o agendamento.'
                 : 'Dinheiro ou maquininha no dia do atendimento. O agendamento entra como Confirmado.'}
