@@ -8,11 +8,11 @@ import { ConfirmModal, Drawer, ErrorBanner, Field, Loading, Modal, MoneyInput, S
 import type { Agendamento, Pagamento } from '../../../types'
 import { AdicionarProdutoModal, CancelarModal, FinalizarModal, PagamentoLocalModal, ReagendarModal } from './AcoesModais'
 import { AlertIcon, PagamentoIcon } from './icons'
-import type { NovoPrefill, Referencias } from './types'
+import type { NovoPrefill, PreviaFinalizacao, Referencias } from './types'
 import { pagamentoPixPendente } from './utils'
 import { PixBox } from './Widgets'
 
-type Acao = 'cancelar' | 'noshow' | 'reagendar' | 'finalizar' | 'pagLocal' | 'produto' | 'excluir' | 'editar' | null
+type Acao = 'cancelar' | 'noshow' | 'reagendar' | 'finalizar' | 'pagLocal' | 'produto' | 'excluir' | 'editar' | 'receber' | null
 
 const STATUS_PAGAMENTO: Record<Pagamento['status'], string> = {
   PENDENTE: 'Pendente',
@@ -131,6 +131,12 @@ export function AgendamentoPainel({
             Finalizar
           </button>
         </>
+      )
+    } else if (ag.status === 'CONCLUIDO' && ag.situacaoPagamento === 'COMANDA_ABERTA') {
+      botoes = (
+        <button className="btn btn-primary" onClick={() => setAcao('receber')}>
+          Receber pagamento
+        </button>
       )
     }
   }
@@ -350,6 +356,7 @@ export function AgendamentoPainel({
           <p className="small muted">A cliente não recebe aviso. Se quiser avisar, use Cancelar em vez de Excluir.</p>
         </ConfirmModal>
       ) : null}
+      {ag && acao === 'receber' ? <ReceberModal ag={ag} onClose={() => setAcao(null)} onDone={concluido} /> : null}
       {ag && acao === 'editar' ? (
         <EditarModal
           ag={ag}
@@ -385,6 +392,114 @@ export function AgendamentoPainel({
         />
       ) : null}
     </>
+  )
+}
+
+/** Comanda aberta: recebe o que ficou em aberto no Finalizar ("Pagar depois"), com os outros da cliente se quiser. */
+function ReceberModal({ ag, onClose, onDone }: { ag: Agendamento; onClose: () => void; onDone: (msg: string) => void }) {
+  const previa = useAsync(() => get<PreviaFinalizacao>(`/agenda/agendamentos/${ag.id}/finalizacao`), [ag.id])
+  const [forma, setForma] = useState<'' | 'DINHEIRO' | 'MAQUININHA' | 'PIX'>('')
+  const [incluir, setIncluir] = useState(true)
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [pixAg, setPixAg] = useState<Agendamento | null>(null)
+  const comanda = previa.data?.comanda || []
+  const juntar = comanda.length > 0 && incluir
+  const total = (previa.data?.valorEmAberto || 0) + (juntar ? comanda.reduce((acc, c) => acc + c.valorEmAberto, 0) : 0)
+
+  async function receber() {
+    if (!forma) return setErro('Escolha a forma de pagamento.')
+    if (juntar && forma === 'PIX') return setErro('A comanda junta só pode ser recebida em dinheiro ou maquininha. No Pix, desmarque os outros atendimentos.')
+    setSalvando(true)
+    setErro('')
+    try {
+      const r = await post<Agendamento>(`/agenda/agendamentos/${ag.id}/receber`, { formaPagamento: forma, incluirComanda: juntar })
+      if (forma === 'PIX' && pagamentoPixPendente(r)) {
+        setPixAg(r)
+        return
+      }
+      onDone('Pagamento recebido.')
+      onClose()
+    } catch (e) {
+      setErro(errorMessage(e))
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  const pix = pagamentoPixPendente(pixAg)
+  if (pixAg) {
+    return (
+      <Modal
+        title="Pix do atendimento"
+        onClose={() => {
+          onDone('Pix gerado. O pagamento entra assim que a cliente pagar.')
+          onClose()
+        }}
+      >
+        {pix ? <PixBox pagamento={pix} /> : <div className="banner info-banner">Pix gerado.</div>}
+      </Modal>
+    )
+  }
+
+  return (
+    <Modal
+      title="Receber pagamento"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose} disabled={salvando}>
+            Voltar
+          </button>
+          <button className="btn btn-primary" onClick={receber} disabled={salvando || !previa.data}>
+            {salvando ? 'Recebendo…' : `Receber ${brl(total)}`}
+          </button>
+        </>
+      }
+    >
+      {!previa.data ? (
+        previa.loading ? <Loading /> : <ErrorBanner message={previa.error || 'Não foi possível carregar.'} />
+      ) : (
+        <div className="stack">
+          <ErrorBanner message={erro} />
+          <div className="row-between">
+            <span>
+              {ag.servicos.map((s) => s.nome).join(' + ')} · {ag.hora}
+            </span>
+            <strong>{brl(previa.data.valorEmAberto)}</strong>
+          </div>
+          {comanda.length ? (
+            <div className="banner warning-banner small">
+              <div className="strong">Outros atendimentos em aberto da cliente</div>
+              {comanda.map((c) => (
+                <div key={c.id} className="row-between">
+                  <span>
+                    {c.servicos} · {c.hora}
+                  </span>
+                  <span>{brl(c.valorEmAberto)}</span>
+                </div>
+              ))}
+              <label className="checkbox" style={{ marginTop: 6 }}>
+                <input type="checkbox" checked={incluir} onChange={(e) => setIncluir(e.target.checked)} /> Receber tudo junto
+              </label>
+            </div>
+          ) : null}
+          <div className="chips">
+            {(
+              [
+                ['DINHEIRO', 'Dinheiro'],
+                ['MAQUININHA', 'Maquininha'],
+                ['PIX', 'Pix (QR na tela)'],
+              ] as const
+            ).map(([k, l]) => (
+              <button type="button" key={k} className={`chip ${forma === k ? 'active' : ''}`} onClick={() => setForma(k)}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </Modal>
   )
 }
 

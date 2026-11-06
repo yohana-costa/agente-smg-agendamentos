@@ -382,7 +382,8 @@ export function FinalizarModal({
   const previa = useAsync(() => get<PreviaFinalizacao>(`/agenda/agendamentos/${agendamentoId}/finalizacao`), [agendamentoId])
   const [realizados, setRealizados] = useState<string[]>([])
   const [adicionais, setAdicionais] = useState<Array<{ produtoId: string; quantidade: number }>>([])
-  const [forma, setForma] = useState<'' | 'DINHEIRO' | 'MAQUININHA' | 'PIX'>('')
+  const [forma, setForma] = useState<'' | 'DINHEIRO' | 'MAQUININHA' | 'PIX' | 'DEPOIS'>('')
+  const [incluirComanda, setIncluirComanda] = useState(true)
   const [retorno, setRetorno] = useState<RetornoAcao>('SEM')
   const [retornoData, setRetornoData] = useState(addDays(todayStr(), 30))
   const [busy, setBusy] = useState(false)
@@ -405,10 +406,16 @@ export function FinalizarModal({
     return Math.max(0, Math.max(0, ag.valorTotal - reducao) + extra - valorPago(ag))
   }, [ag, realizados, adicionais, refs.produtos])
 
+  // comanda: outros atendimentos da cliente finalizados com "Pagar depois"
+  const comanda = p?.comanda || []
+  const totalComanda = comanda.reduce((acc, c) => acc + c.valorEmAberto, 0)
+  const juntarComanda = comanda.length > 0 && incluirComanda && forma !== 'DEPOIS'
+
   async function confirmar() {
     if (!ag) return
     if (!realizados.length) return setError('Confirme pelo menos um serviço realizado.')
-    if (emAberto > 0 && !forma) return setError('Informe a forma de pagamento do valor em aberto.')
+    if ((emAberto > 0 || juntarComanda) && !forma) return setError('Informe a forma de pagamento do valor em aberto.')
+    if (juntarComanda && forma === 'PIX') return setError('A comanda junta só pode ser recebida em dinheiro ou maquininha. No Pix, desmarque "Receber junto".')
     if (retorno === 'ALTERAR' && !/^\d{4}-\d{2}-\d{2}$/.test(retornoData)) return setError('Informe a data do retorno.')
     setBusy(true)
     setError('')
@@ -416,13 +423,14 @@ export function FinalizarModal({
       const r = await post<Agendamento>(`/agenda/agendamentos/${ag.id}/finalizar`, {
         servicosRealizados: realizados,
         produtosAdicionais: adicionais.filter((a) => a.produtoId && a.quantidade > 0),
-        formaPagamento: emAberto > 0 ? forma : undefined,
+        formaPagamento: emAberto > 0 || juntarComanda ? forma : undefined,
+        incluirComanda: juntarComanda,
         retorno: {
           acao: retorno === 'AGENDAR' ? (p?.retornoSugerido ? 'ACEITAR' : 'SEM') : retorno,
           data: retorno === 'ALTERAR' ? retornoData : undefined,
         },
       })
-      const msg = 'Atendimento finalizado.'
+      const msg = forma === 'DEPOIS' && emAberto > 0 ? 'Atendimento finalizado. A comanda ficou em aberto.' : 'Atendimento finalizado.'
       if (emAberto > 0 && forma === 'PIX' && pagamentoPixPendente(r)) {
         setPixAg(r)
         onDone(`${msg} Mostre o QR code do Pix ao cliente.`)
@@ -537,11 +545,27 @@ export function FinalizarModal({
 
           <section className="ag-step">
             <div className="ag-step-title">Pagamento</div>
-            {emAberto > 0 ? (
+            {comanda.length ? (
+              <div className="banner warning-banner small">
+                <div className="strong">Comanda em aberto da cliente</div>
+                {comanda.map((c) => (
+                  <div key={c.id} className="row-between">
+                    <span>
+                      {c.servicos} · {dateBr(c.data)} {c.hora}
+                    </span>
+                    <span>{brl(c.valorEmAberto)}</span>
+                  </div>
+                ))}
+                <label className="checkbox" style={{ marginTop: 6 }}>
+                  <input type="checkbox" checked={incluirComanda} disabled={forma === 'DEPOIS'} onChange={(e) => setIncluirComanda(e.target.checked)} /> Receber junto com este atendimento
+                </label>
+              </div>
+            ) : null}
+            {emAberto > 0 || juntarComanda ? (
               <>
                 <div className="row-between">
-                  <span>Valor em aberto</span>
-                  <strong className="ag-big">{brl(emAberto)}</strong>
+                  <span>{juntarComanda ? 'Total a receber (este + comanda)' : 'Valor em aberto'}</span>
+                  <strong className="ag-big">{brl(emAberto + (juntarComanda ? totalComanda : 0))}</strong>
                 </div>
                 <div className="chips">
                   {(
@@ -549,13 +573,22 @@ export function FinalizarModal({
                       ['DINHEIRO', 'Dinheiro'],
                       ['MAQUININHA', 'Maquininha'],
                       ['PIX', 'Pix (QR na tela)'],
+                      ['DEPOIS', 'Pagar depois (comanda aberta)'],
                     ] as const
-                  ).map(([k, l]) => (
-                    <button type="button" key={k} className={`chip ${forma === k ? 'active' : ''}`} onClick={() => setForma(k)}>
-                      {l}
-                    </button>
-                  ))}
+                  )
+                    .filter(([k]) => !(k === 'DEPOIS' && emAberto === 0))
+                    .map(([k, l]) => (
+                      <button type="button" key={k} className={`chip ${forma === k ? 'active' : ''}`} onClick={() => setForma(k)}>
+                        {l}
+                      </button>
+                    ))}
                 </div>
+                {forma === 'DEPOIS' ? (
+                  <div className="small muted">
+                    O atendimento é finalizado (o tempo fica registrado) e o valor fica na comanda da cliente. Você recebe tudo junto ao finalizar o próximo atendimento dela, ou pelo botão
+                    "Receber pagamento" no agendamento.
+                  </div>
+                ) : null}
               </>
             ) : (
               <div className="small success-text">Nada em aberto: o valor já foi pago.</div>

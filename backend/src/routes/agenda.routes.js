@@ -296,6 +296,11 @@ const acao = (fn) =>
 router.post("/agendamentos/:id/iniciar", acao((req) => agendamentoService.iniciar(req.auth.tenantId, req.params.id)));
 router.get("/agendamentos/:id/finalizacao", acao((req) => agendamentoService.previaFinalizacao(req.auth.tenantId, req.params.id)));
 router.post("/agendamentos/:id/finalizar", acao((req) => agendamentoService.finalizar(req.auth.tenantId, req.params.id, req.body || {})));
+// comanda aberta: recebe depois o que ficou em aberto no Finalizar ("Pagar depois")
+router.post(
+  "/agendamentos/:id/receber",
+  acao((req) => agendamentoService.receberPagamento(req.auth.tenantId, req.params.id, { formaPagamento: req.body?.formaPagamento, incluirComanda: toBool(req.body?.incluirComanda) }))
+);
 router.post("/agendamentos/:id/produtos", acao((req) => agendamentoService.adicionarProduto(req.auth.tenantId, req.params.id, req.body || {})));
 router.get(
   "/agendamentos/:id/simular-cancelamento",

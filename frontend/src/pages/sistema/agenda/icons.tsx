@@ -20,6 +20,13 @@ export function PagamentoIcon({ situacao, comTexto = false }: { situacao: string
         <circle cx="8" cy="8" r="1.8" />
       </svg>
     )
+  } else if (situacao === 'COMANDA_ABERTA') {
+    icon = (
+      <svg {...svg}>
+        <rect x="3" y="2" width="10" height="12.5" rx="1.5" />
+        <path d="M5.5 6h5M5.5 8.5h5M5.5 11h3" />
+      </svg>
+    )
   } else if (situacao === 'AGUARDANDO') {
     icon = (
       <svg {...svg}>

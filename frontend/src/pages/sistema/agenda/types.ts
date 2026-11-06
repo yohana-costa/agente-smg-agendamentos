@@ -101,6 +101,16 @@ export interface PreviaFinalizacao {
   agendamento: Agendamento
   valorEmAberto: number
   retornoSugerido: string | null
+  /** outros atendimentos ja finalizados da cliente com valor em aberto ("Pagar depois") */
+  comanda: ComandaItem[]
+}
+
+export interface ComandaItem {
+  id: string
+  data: string
+  hora: string
+  servicos: string
+  valorEmAberto: number
 }
 
 export interface Afetado {

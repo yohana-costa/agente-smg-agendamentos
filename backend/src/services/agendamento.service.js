@@ -28,6 +28,7 @@ const INCLUDE_COMPLETO = {
 function situacaoPagamento(ag) {
   const aprovados = (ag.pagamentos || []).filter((p) => ["APROVADO", "REEMBOLSADO_PARCIAL", "REEMBOLSADO"].includes(p.status));
   if (ag.status === "AGUARDANDO_PAGAMENTO") return "AGUARDANDO";
+  if (ag.status === "CONCLUIDO" && valorEmAberto(ag) > 0) return "COMANDA_ABERTA";
   if (aprovados.some((p) => p.modo === "ONLINE")) return "PAGO_ONLINE";
   if (aprovados.some((p) => p.modo === "LOCAL")) return "PAGO_LOCAL";
   if (ag.modoPagamento === "LOCAL") return "PAGAR_NO_LOCAL";
@@ -467,7 +468,72 @@ async function previaFinalizacao(tenantId, id) {
     agendamento: serializar(ag, tenant),
     valorEmAberto: valorEmAberto(ag),
     retornoSugerido: sugerirRetorno({ ...ag, servicos: comRetorno }, tenant),
+    comanda: await comandaAberta(tenantId, ag.clienteId, id),
   };
+}
+
+// ---------- comanda aberta ----------
+// Atendimento finalizado com "Pagar depois" (ex.: a cliente faz dois procedimentos seguidos e paga
+// tudo no fim). O valor fica em aberto ate ser recebido, junto com o proximo ou pelo painel.
+
+async function comandaAberta(tenantId, clienteId, excluirId = null) {
+  const concluidos = await prisma.agendamento.findMany({
+    where: { tenantId, clienteId, status: "CONCLUIDO", id: excluirId ? { not: excluirId } : undefined, finalizadoEm: { gte: new Date(Date.now() - 60 * 86400000) } },
+    include: { pagamentos: true, servicos: { orderBy: { ordem: "asc" } } },
+    orderBy: { inicio: "asc" },
+  });
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  return concluidos
+    .filter((a) => valorEmAberto(a) > 0)
+    .map((a) => ({ id: a.id, data: zonedParts(a.inicio, tenant.timezone).date, hora: zonedParts(a.inicio, tenant.timezone).time, servicos: a.servicos.map((s) => s.nome).join(" + "), valorEmAberto: valorEmAberto(a) }));
+}
+
+// Recebe o que esta em aberto de um atendimento (dinheiro/maquininha registra na hora; Pix gera QR).
+async function receberEmAberto(tenant, ag, forma) {
+  const emAberto = valorEmAberto(ag);
+  if (emAberto <= 0) return;
+  if (forma === "PIX") {
+    const pg = await pagamentos.criarPagamentoOnline(null, { tenantId: tenant.id, clienteId: ag.clienteId, agendamentoId: ag.id, valor: emAberto, origem: "MANUAL", descricao: "Pix no local" });
+    await prisma.pagamento.update({ where: { id: pg.id }, data: { modo: "LOCAL" } });
+    await pagamentos.gerarPix(pg.id);
+  } else {
+    await pagamentos.registrarPagamentoLocal(null, { tenantId: tenant.id, clienteId: ag.clienteId, agendamentoId: ag.id, valor: emAberto, forma, origem: "MANUAL" });
+  }
+}
+
+// Pontos de fidelidade de atendimento ja concluido que acabou de ser pago (comanda).
+async function creditarDepoisDePago(tenant, agendamentoId) {
+  const final = await prisma.agendamento.findUnique({ where: { id: agendamentoId }, include: { pagamentos: true } });
+  const pago = final.pagamentos.filter((p) => p.status === "APROVADO").reduce((acc, p) => acc + p.valorBruto, 0);
+  if (pago > 0 && valorEmAberto(final) === 0) await fidelidade.creditarAtendimento(final, tenant, pago);
+}
+
+/** Recebe a comanda de outros atendimentos ja finalizados da mesma cliente (so dinheiro/maquininha). */
+async function receberComanda(tenant, clienteId, forma, excluirId) {
+  if (!["DINHEIRO", "MAQUININHA"].includes(forma)) throw badRequest("A comanda junta só pode ser recebida em dinheiro ou maquininha. No Pix, receba cada atendimento separado.");
+  const itens = await comandaAberta(tenant.id, clienteId, excluirId);
+  for (const item of itens) {
+    const ag = await obter(tenant.id, item.id);
+    await receberEmAberto(tenant, ag, forma);
+    await creditarDepoisDePago(tenant, item.id);
+    notificarAgenda(tenant.id, item.id, "pago");
+  }
+  return itens.length;
+}
+
+/** Painel: recebe o valor em aberto de um atendimento finalizado com "Pagar depois". */
+async function receberPagamento(tenantId, id, { formaPagamento, incluirComanda = false } = {}) {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  const ag = await obter(tenantId, id);
+  if (ag.status !== "CONCLUIDO") throw badRequest("Use Finalizar para receber um atendimento em aberto.");
+  if (valorEmAberto(ag) <= 0) throw badRequest("Este atendimento já está pago.");
+  if (!["DINHEIRO", "MAQUININHA", "PIX"].includes(formaPagamento)) throw badRequest("Informe a forma de pagamento.");
+  if (incluirComanda) await receberComanda(tenant, ag.clienteId, formaPagamento, id);
+  await receberEmAberto(tenant, ag, formaPagamento);
+  if (formaPagamento !== "PIX") await creditarDepoisDePago(tenant, id);
+  log("agenda", "comanda_recebida", { tenantId, id, formaPagamento, incluirComanda });
+  notificarAgenda(tenantId, id, "pago");
+  return obterSerializado(tenantId, id);
 }
 
 /**
@@ -499,19 +565,14 @@ async function finalizar(tenantId, id, body = {}) {
   }
   ag = await obter(tenantId, id);
 
-  // pagamento do que estiver em aberto
+  // pagamento do que estiver em aberto; "DEPOIS" deixa a comanda aberta (recebe no proximo
+  // atendimento da cliente ou pelo painel)
   const emAberto = valorEmAberto(ag);
-  if (emAberto > 0) {
-    const forma = body.formaPagamento;
-    if (!forma) throw badRequest("Informe a forma de pagamento do valor em aberto.", { valorEmAberto: emAberto });
-    if (forma === "PIX") {
-      const pg = await pagamentos.criarPagamentoOnline(null, { tenantId, clienteId: ag.clienteId, agendamentoId: id, valor: emAberto, origem: "MANUAL", descricao: "Pix no local" });
-      await prisma.pagamento.update({ where: { id: pg.id }, data: { modo: "LOCAL" } });
-      await pagamentos.gerarPix(pg.id);
-    } else {
-      await pagamentos.registrarPagamentoLocal(null, { tenantId, clienteId: ag.clienteId, agendamentoId: id, valor: emAberto, forma, origem: "MANUAL" });
-    }
-  }
+  const forma = body.formaPagamento;
+  const pagarDepois = forma === "DEPOIS";
+  if (emAberto > 0 && !forma) throw badRequest("Informe a forma de pagamento do valor em aberto.", { valorEmAberto: emAberto });
+  if (!pagarDepois && forma && body.incluirComanda) await receberComanda(tenant, ag.clienteId, forma, id);
+  if (emAberto > 0 && !pagarDepois) await receberEmAberto(tenant, ag, forma);
 
   // duracao real: so entra na media quando Iniciar e Finalizar foram clicados no momento certo
   const finalizadoEm = new Date();
@@ -546,7 +607,8 @@ async function finalizar(tenantId, id, body = {}) {
 
   const final = await obter(tenantId, id);
   const pago = final.pagamentos.filter((p) => p.status === "APROVADO").reduce((acc, p) => acc + p.valorBruto, 0);
-  await fidelidade.creditarAtendimento(final, tenant, pago);
+  // comanda aberta: os pontos entram quando ela for paga (creditarDepoisDePago)
+  if (!pagarDepois || emAberto === 0) await fidelidade.creditarAtendimento(final, tenant, pago);
 
   notificarAgenda(tenantId, id, "finalizado");
   return serializar(final, tenant);
@@ -848,4 +910,5 @@ module.exports = {
   valorEmAberto,
   aceitaPagarNoLocal,
   ajustar,
+  receberPagamento,
 };

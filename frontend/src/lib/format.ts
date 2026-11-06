@@ -132,6 +132,7 @@ export const SITUACAO_PAGAMENTO: Record<string, string> = {
   PAGO_LOCAL: 'Pago no local',
   PAGAR_NO_LOCAL: 'Pagar no local',
   SEM_COBRANCA: 'Sem cobrança',
+  COMANDA_ABERTA: 'Comanda em aberto',
 }
 
 export const ORIGEM: Record<string, string> = { SITE: 'Site', AGENTE: 'Agente', MANUAL: 'Manual', BALCAO: 'Balcão', OUTRO: 'Outro' }
