@@ -41,23 +41,24 @@ function saudacaoDoHorario(hora) {
  * clinica, menos nos meses de tenant.mesesPagamentoAntecipado. Com isso da para agendar mesmo
  * sem Mercado Pago, nos meses que aceitam pagar no local.
  */
-const MESES = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
+// Os meses de pagamento antecipado NAO vao no prompt: com a lista ali, o modelo aplicou a regra
+// ao mes errado ("novembro so online" para um pedido de 12/01). Quem decide e o sistema: o
+// campo `pagamento` de consultar_horarios (por dia) e a recusa do criar_agendamento.
 function regrasPagamento(tenant, pagamentoDisponivel) {
   if (!tenant.pagarNoLocalAtivo) return [];
-  const meses = (tenant.mesesPagamentoAntecipado || []).map((m) => MESES[m - 1]).filter(Boolean).join(", ");
   if (!pagamentoDisponivel) {
     return [
       "## Pagamento",
       "O pagamento e feito no dia, na clinica: use `criar_agendamento` com pagamento \"local\" (o horario ja fica confirmado, sem link). Nao fale de pagamento online.",
-      meses ? `Atendimentos em ${meses} pedem pagamento antecipado: para esses, nao agende, use \`consultar_equipe\` com tipo "agendamento".` : "",
-    ].filter(Boolean);
+      "Se `consultar_horarios` disser que naquele dia nao da para agendar por aqui, use `consultar_equipe` com tipo \"agendamento\".",
+    ];
   }
   return [
     "## Pagamento",
-    "A cliente escolhe: pagar agora pelo link (Pix ou cartao) ou pagar no dia, na clinica. Antes de `criar_agendamento`, pergunte em uma frase curta como ela prefere e passe `pagamento` \"online\" ou \"local\". Pagando no local o horario ja fica confirmado e nao tem link.",
-    meses ? `Excecao: atendimentos em ${meses} so sao confirmados com pagamento online antecipado. Nesses meses nao ofereca pagar no local; explique com naturalidade e use pagamento "online".` : "",
-  ].filter(Boolean);
+    "Siga o campo `pagamento` que `consultar_horarios` devolve para o dia escolhido. Quando a cliente pode escolher, pergunte em uma frase curta se ela prefere pagar agora pelo link (Pix ou cartao) ou no dia, na clinica, e passe `pagamento` \"online\" ou \"local\" no `criar_agendamento`. Pagando no local o horario ja fica confirmado e nao tem link.",
+    "Quando o campo disser que e SOMENTE online e antecipado, explique isso com naturalidade e use pagamento \"online\". Nunca diga que um dia exige pagamento antecipado sem o campo dizer isso.",
+  ];
 }
 
 function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true, linkJaEnviado = false, mesCitado = null, falasDaEquipe = [] }) {
@@ -255,11 +256,21 @@ function buildTools(ctx) {
           const hora = Number(String(h).slice(0, 2));
           return periodo === "manha" ? hora < 12 : periodo === "tarde" ? hora >= 12 && hora < 18 : hora >= 18;
         };
+        // Pagar no local por dia: so a regra no prompt nao bastou (em 08/12 a IA ofereceu "pagamento no dia").
+        const pagamentoDoDia = (dia) => {
+          if (!tenant.pagarNoLocalAtivo) return {};
+          return agendamentoService.aceitaPagarNoLocal(tenant, zonedToUtc(dia, "12:00", tenant.timezone))
+            ? { pagamento: "a cliente escolhe: online agora ou no dia, na clinica" }
+            : ctx.pagamentoDisponivel
+              ? { pagamento: "SOMENTE online e antecipado neste mes (nao existe pagar no local; explique isso antes de agendar)" }
+              : { pagamento: "neste mes nao da para agendar por aqui: use consultar_equipe com tipo agendamento, sem falar de sistema" };
+        };
         if (data) {
           const r = await disponibilidade.listarHorarios({ tenantId, servicoIds: servico_ids, profissionalId: profissional_id, data });
           return {
             ok: true,
             data,
+            ...pagamentoDoDia(data),
             diaSemana: WEEKDAY_NAMES[new Date(`${data}T12:00:00Z`).getUTCDay()],
             duracaoTotalMin: r.duracao.ocupacaoTotal,
             periodo: periodo || null,
@@ -279,6 +290,7 @@ function buildTools(ctx) {
           dias: dias
             .map((d) => ({
               data: d.data,
+              ...pagamentoDoDia(d.data),
               diaSemana: WEEKDAY_NAMES[new Date(`${d.data}T12:00:00Z`).getUTCDay()],
               profissionais: d.profissionais
                 .map((p) => ({ id: p.profissionalId, nome: p.nome, horarios: ordenar(p.horarios.filter(noPeriodo)).slice(0, 3) }))
@@ -299,7 +311,10 @@ function buildTools(ctx) {
         data: z.string().describe("AAAA-MM-DD"),
         hora: z.string().describe("HH:mm"),
         nome_cliente: z.string().optional().describe("Nome do cliente, se ainda nao cadastrado"),
-        pagamento: z.enum(["online", "local"]).optional().describe("online = link agora; local = paga no dia, na clinica (so se o estabelecimento permite)"),
+        pagamento: z
+          .enum(["online", "local"])
+          .optional()
+          .describe("online = link agora; local = paga no dia, na clinica (so se o estabelecimento permite). Use o que a CLIENTE escolheu; se ela ainda nao disse como prefere pagar, pergunte antes de chamar esta ferramenta."),
       }),
       handler: async (entrada) => {
         const { data, hora, nome_cliente } = entrada;
@@ -309,13 +324,24 @@ function buildTools(ctx) {
         }
         if (local && /^\d{4}-\d{2}-\d{2}$/.test(data) && /^\d{2}:\d{2}$/.test(hora) && !agendamentoService.aceitaPagarNoLocal(tenant, zonedToUtc(data, hora, tenant.timezone))) {
           return ctx.pagamentoDisponivel
-            ? { ok: false, error: "Neste mes o pagamento e antecipado: so da para agendar com pagamento online. Explique isso a cliente com naturalidade e, se ela aceitar, chame de novo com pagamento online." }
+            ? { ok: false, error: "Neste mes o pagamento e antecipado: so da para agendar com pagamento online. NAO use consultar_equipe por isso: explique a cliente com naturalidade que neste mes o horario e confirmado com o pagamento antes e, se ela aceitar, chame de novo com pagamento online." }
             : { ok: false, error: "Neste mes o agendamento exige pagamento antecipado. Use consultar_equipe com tipo agendamento. Nao fale de sistema com a cliente." };
         }
         const servico_ids = await idsDeServicos(entrada.servico_ids);
         const profissional_id = await idDeProfissional(entrada.profissional_id);
         const cliente = await clienteAtual();
         if (!cliente && !nome_cliente) return { ok: false, error: "Pergunte o nome do cliente antes de agendar." };
+        // Ja criou com link e a cliente escolheu pagar no local: converte a reserva dela em vez de
+        // bater no proprio horario ("ja foi reservado").
+        if (local && cliente) {
+          const reserva = await prisma.agendamento.findFirst({
+            where: { tenantId, clienteId: cliente.id, profissionalId: profissional_id, status: "AGUARDANDO_PAGAMENTO", inicio: zonedToUtc(data, hora, tenant.timezone) },
+          });
+          if (reserva) {
+            const ag = await agendamentoService.mudarParaPagarNoLocal(tenantId, reserva.id);
+            return { ok: true, agendamento: resumoAgendamento(ag), observacao: "A reserva que estava aguardando pagamento virou pagamento no local e ja esta confirmada. O link anterior nao vale mais." };
+          }
+        }
         const ag = await agendamentoService.criar({
           tenantId,
           origem: "AGENTE",

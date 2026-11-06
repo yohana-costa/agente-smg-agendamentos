@@ -129,7 +129,11 @@ async function dispararAutomacao(tipo, agendamentoId, { extras = {}, referencia,
   }
 
   const vars = varsAgendamento(agendamento, tenant, extras);
-  const texto = renderTemplate(automacao.texto, vars);
+  let texto = renderTemplate(automacao.texto, vars);
+  // Pagar no local: a confirmacao sai sem pagamento, entao o "Pagamento confirmado!" do texto padrao mentiria.
+  if (tipo === "CONFIRMACAO" && agendamento.modoPagamento === "LOCAL") {
+    texto = texto.replace(/^\s*Pagamento confirmado!?\s*/i, "Agendamento confirmado! ").replace(/\s*$/, " O pagamento é feito no dia, na clínica.");
+  }
   const r = await enviarAoCliente(tenant.id, agendamento, tipo, vars, texto);
   if (unicaVez && !r.enviado) {
     await prisma.automacaoEnvio.updateMany({ where: { tipo, referencia: ref }, data: { sucesso: false, erro: r.motivo || null } });

@@ -703,6 +703,25 @@ async function excluir(tenantId, id) {
   return { excluido: true };
 }
 
+/**
+ * Reserva aguardando pagamento online que a cliente decide pagar no local (ex.: a IA criou com
+ * link antes de perguntar). Cancela a cobranca e confirma, como se tivesse nascido "LOCAL".
+ */
+async function mudarParaPagarNoLocal(tenantId, id) {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  const ag = await obter(tenantId, id);
+  if (ag.status !== "AGUARDANDO_PAGAMENTO") throw badRequest("Este agendamento nao esta aguardando pagamento.");
+  if (!aceitaPagarNoLocal(tenant, ag.inicio)) throw badRequest("Para este mês o pagamento é antecipado: o horário só é confirmado com o pagamento online.");
+  await pagamentos.cancelarCobrancasPendentes({ tenant, agendamentoId: id });
+  await prisma.agendamento.update({ where: { id }, data: { status: "CONFIRMADO", modoPagamento: "LOCAL", expiraEm: null } });
+  await baixarEstoqueAgendamento(id);
+  await dispararAutomacao("CONFIRMACAO", id);
+  if (ag.origem !== "MANUAL") avisar(tenantId, id, "NOVO_AGENDAMENTO");
+  log("agenda", "mudou_para_pagar_no_local", { tenantId, id });
+  notificarAgenda(tenantId, id, "confirmado");
+  return obterSerializado(tenantId, id);
+}
+
 // ---------- ajuste pelo painel ----------
 
 /**
@@ -911,4 +930,5 @@ module.exports = {
   aceitaPagarNoLocal,
   ajustar,
   receberPagamento,
+  mudarParaPagarNoLocal,
 };
