@@ -1,18 +1,18 @@
 // Painel do agendamento (escopo 6.4): dados, pagamento, resumo do cliente e botoes por status.
 import { useEffect, useState, type ReactNode } from 'react'
-import { ApiError, del, errorMessage, get, patch, post } from '../../../lib/api'
+import { ApiError, del, errorMessage, get, patch, post, put } from '../../../lib/api'
 import { brl, countdown, dateLong, dateTimeBr, duration, FORMA_PAGAMENTO, ORIGEM, phone } from '../../../lib/format'
 import { useAsync, useCountdown } from '../../../lib/hooks'
 import { useAuth } from '../../../lib/auth'
 import { ConfirmModal, Drawer, ErrorBanner, Field, Loading, Modal, MoneyInput, StatusBadge, SuccessBanner } from '../../../components/ui'
-import type { Agendamento, Pagamento } from '../../../types'
+import type { Agendamento, PacoteCliente, Pagamento } from '../../../types'
 import { AdicionarProdutoModal, CancelarModal, FinalizarModal, PagamentoLocalModal, ReagendarModal } from './AcoesModais'
 import { AlertIcon, PagamentoIcon } from './icons'
 import type { NovoPrefill, PreviaFinalizacao, Referencias } from './types'
 import { pagamentoPixPendente } from './utils'
 import { PixBox } from './Widgets'
 
-type Acao = 'cancelar' | 'noshow' | 'reagendar' | 'finalizar' | 'pagLocal' | 'produto' | 'excluir' | 'editar' | 'receber' | null
+type Acao = 'cancelar' | 'noshow' | 'reagendar' | 'finalizar' | 'pagLocal' | 'produto' | 'excluir' | 'editar' | 'servicos' | 'receber' | null
 
 const STATUS_PAGAMENTO: Record<Pagamento['status'], string> = {
   PENDENTE: 'Pendente',
@@ -144,6 +144,7 @@ export function AgendamentoPainel({
   // concluido e pagamento recebido o backend recusa, com a explicacao
   const podeExcluir = Boolean(ag && !readOnly && usuario?.perfil !== 'PROFISSIONAL' && ag.status !== 'CONCLUIDO')
   const podeEditar = Boolean(ag && !readOnly && usuario?.perfil !== 'PROFISSIONAL' && ['AGUARDANDO_PAGAMENTO', 'CONFIRMADO', 'EM_ATENDIMENTO'].includes(ag.status))
+  const podeEditarServicos = podeEditar && ['CONFIRMADO', 'EM_ATENDIMENTO'].includes(ag?.status || '')
   const excluir = podeExcluir ? (
     <button className="btn btn-ghost danger-text" style={{ marginRight: 'auto' }} onClick={() => setAcao('excluir')}>
       Excluir
@@ -230,7 +231,18 @@ export function AgendamentoPainel({
               {ag.clienteResumo?.observacoes ? <div className="ag-obs small">Obs. do cliente: {ag.clienteResumo.observacoes}</div> : null}
             </Section>
 
-            <Section title="Serviços">
+            <Section
+              title={
+                <span className="row-between">
+                  <span>Serviços</span>
+                  {podeEditarServicos ? (
+                    <button className="btn btn-sm" onClick={() => setAcao('servicos')}>
+                      ✎ Editar / incluir procedimento
+                    </button>
+                  ) : null}
+                </span>
+              }
+            >
               {ag.servicos.map((s) => (
                 <div key={s.id} className="row-between ag-line">
                   <span>
@@ -243,7 +255,7 @@ export function AgendamentoPainel({
                     </span>
                     {s.pacoteSaldoId && !s.pacoteDevolvido ? <span className="badge badge-primary" style={{ marginLeft: 6 }}>pacote</span> : null}
                   </span>
-                  <span>{s.pacoteSaldoId && !s.pacoteDevolvido ? 'pacote' : brl(s.preco)}</span>
+                  <span>{s.pacoteSaldoId && !s.pacoteDevolvido && !s.preco ? 'pacote' : brl(s.preco)}</span>
                 </div>
               ))}
               {ag.produtos.length ? (
@@ -360,6 +372,17 @@ export function AgendamentoPainel({
       {ag && acao === 'editar' ? (
         <EditarModal
           ag={ag}
+          onClose={() => setAcao(null)}
+          onDone={(t) => {
+            setAcao(null)
+            concluido(t)
+          }}
+        />
+      ) : null}
+      {ag && acao === 'servicos' ? (
+        <ProcedimentosModal
+          ag={ag}
+          refs={refs}
           onClose={() => setAcao(null)}
           onDone={(t) => {
             setAcao(null)
@@ -568,6 +591,142 @@ function EditarModal({ ag, onClose, onDone }: { ag: Agendamento; onClose: () => 
         >
           <MoneyInput value={valor} onChange={setValor} disabled={valorBloqueado} />
         </Field>
+      </div>
+    </Modal>
+  )
+}
+
+/** Inclui, tira ou troca procedimentos do agendamento (ex.: veio fazer mão e fez pé e mão) e usa o pacote da cliente. */
+function ProcedimentosModal({ ag, refs, onClose, onDone }: { ag: Agendamento; refs: Referencias; onClose: () => void; onDone: (msg: string) => void }) {
+  const [ids, setIds] = useState(() => ag.servicos.map((s) => s.servicoId))
+  const [busca, setBusca] = useState('')
+  const [usarPacote, setUsarPacote] = useState(true)
+  const [encaixe, setEncaixe] = useState(false)
+  const [pedirEncaixe, setPedirEncaixe] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+  const { data: pacotes } = useAsync(() => get<PacoteCliente[]>(`/clientes/${encodeURIComponent(ag.clienteId)}/pacotes`), [ag.clienteId])
+
+  // saldo livre do pacote por servico, para mostrar o que ele cobre antes de salvar
+  const livres = (pacotes || [])
+    .filter((pc) => pc.status === 'ATIVO' && (!pc.validoAte || String(pc.validoAte).slice(0, 10) >= ag.data))
+    .flatMap((pc) => pc.saldos.filter((s) => s.restante > 0).map((s) => ({ servicoId: s.servicoId, livre: s.restante, preco: pc.porSessao ? s.valorSessao : 0 })))
+  const linhas = ids.map((id) => {
+    const item = ag.servicos.find((s) => s.servicoId === id)
+    const ref = refs.servicos.find((s) => s.id === id)
+    const noPacote = Boolean(item?.pacoteSaldoId && !item.pacoteDevolvido)
+    let preco = item ? item.preco : ref?.preco || 0
+    let vaiUsarPacote = false
+    if (!noPacote && usarPacote) {
+      const saldo = livres.find((l) => l.servicoId === id && l.livre > 0)
+      if (saldo) {
+        saldo.livre -= 1
+        preco = saldo.preco
+        vaiUsarPacote = true
+      }
+    }
+    return { id, nome: item?.nome || ref?.nome || 'Serviço', preco, duracaoMin: item ? item.duracaoMin : ref?.duracaoMin || 0, novo: !item, noPacote, vaiUsarPacote }
+  })
+  const temPacote = (pacotes || []).some((pc) => pc.status === 'ATIVO')
+  const valorServicos = linhas.reduce((acc, l) => acc + l.preco, 0)
+  const ajuste = valorServicos === ag.valorServicos ? ag.ajusteValor || 0 : 0
+  const total = Math.max(0, valorServicos + ag.valorProdutos - Math.min(ag.desconto, valorServicos + ag.valorProdutos) + ajuste)
+  const opcoes = refs.servicos.filter(
+    (s) => s.profissionalIds.includes(ag.profissionalId) && !ids.includes(s.id) && (!busca || s.nome.toLowerCase().includes(busca.toLowerCase()) || (s.categoria || '').toLowerCase().includes(busca.toLowerCase()))
+  )
+
+  async function salvar() {
+    if (!ids.length) return setErro('Deixe pelo menos um procedimento.')
+    setSalvando(true)
+    setErro('')
+    try {
+      const r = await put<Agendamento & { pacotesUsados: number }>(`/agenda/agendamentos/${ag.id}/servicos`, { servicoIds: ids, usarPacote, encaixe })
+      onDone(r.pacotesUsados ? `Procedimentos atualizados. ${r.pacotesUsados} sessão(ões) do pacote usada(s).` : 'Procedimentos atualizados.')
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && e.details?.requerEncaixe) setPedirEncaixe(true)
+      setErro(errorMessage(e))
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="Procedimentos do agendamento"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose} disabled={salvando}>
+            Voltar
+          </button>
+          <button className="btn btn-primary" onClick={salvar} disabled={salvando || !ids.length || (pedirEncaixe && !encaixe)}>
+            {salvando ? 'Salvando…' : `Salvar · ${brl(total)}`}
+          </button>
+        </>
+      }
+    >
+      <div className="stack">
+        <ErrorBanner message={erro} />
+        <div className="stack-sm">
+          {linhas.map((l) => (
+            <div key={l.id} className="row-between ag-line">
+              <span>
+                {l.nome}
+                <span className="small muted"> · {duration(l.duracaoMin)}</span>
+                {l.novo ? <span className="badge badge-success" style={{ marginLeft: 6 }}>novo</span> : null}
+                {l.noPacote || l.vaiUsarPacote ? <span className="badge badge-primary" style={{ marginLeft: 6 }}>pacote</span> : null}
+              </span>
+              <span className="row" style={{ gap: 8 }}>
+                {l.preco ? brl(l.preco) : l.noPacote || l.vaiUsarPacote ? 'pacote' : brl(0)}
+                <button className="btn btn-sm btn-ghost danger-text" title="Tirar do agendamento" onClick={() => setIds((x) => x.filter((i) => i !== l.id))}>
+                  ✕
+                </button>
+              </span>
+            </div>
+          ))}
+          <div className="row-between ag-line ag-total">
+            <span>Novo total</span>
+            <span>{brl(total)}</span>
+          </div>
+          {ag.ajusteValor && !ajuste ? <div className="small muted">O ajuste manual de valor sai, porque os procedimentos mudaram. Se precisar, ajuste de novo depois.</div> : null}
+        </div>
+
+        {temPacote ? (
+          <label className="row small" style={{ gap: 8 }}>
+            <input type="checkbox" checked={usarPacote} onChange={(e) => setUsarPacote(e.target.checked)} />
+            Usar o pacote da cliente no que ele cobrir
+          </label>
+        ) : null}
+
+        <Field label="Incluir procedimento" hint={`Aparecem os procedimentos que ${ag.profissional?.nome || 'o profissional'} faz. A duração do atendimento é recalculada.`}>
+          <input className="input" placeholder="Buscar procedimento" value={busca} onChange={(e) => setBusca(e.target.value)} />
+        </Field>
+        <div className="stack-sm" style={{ maxHeight: 220, overflowY: 'auto' }}>
+          {opcoes.slice(0, 30).map((s) => (
+            <button
+              key={s.id}
+              className="btn btn-sm"
+              style={{ justifyContent: 'space-between', width: '100%' }}
+              onClick={() => {
+                setIds((x) => [...x, s.id])
+                setBusca('')
+              }}
+            >
+              <span>+ {s.nome}</span>
+              <span className="small muted">
+                {brl(s.preco)} · {duration(s.duracaoMin)}
+              </span>
+            </button>
+          ))}
+          {!opcoes.length ? <div className="small muted">Nenhum procedimento encontrado.</div> : null}
+        </div>
+
+        {pedirEncaixe ? (
+          <label className="row small" style={{ gap: 8 }}>
+            <input type="checkbox" checked={encaixe} onChange={(e) => setEncaixe(e.target.checked)} />
+            Confirmar mesmo assim (encaixe por cima do outro agendamento)
+          </label>
+        ) : null}
       </div>
     </Modal>
   )

@@ -151,6 +151,24 @@ router.post(
   })
 );
 
+// pacote vendido depois de marcar as sessoes: agendamentos ja marcados que ele pode cobrir
+router.get(
+  "/:id/pacotes/agendamentos",
+  asyncHandler(async (req, res) => {
+    const cliente = await prisma.cliente.findFirst({ where: { id: req.params.id, tenantId: req.auth.tenantId } });
+    if (!cliente) throw notFound("Cliente nao encontrado.");
+    return ok(res, await agendamentoService.agendamentosParaPacote(req.auth.tenantId, cliente.id));
+  })
+);
+
+router.post(
+  "/:id/pacotes/aplicar",
+  asyncHandler(async (req, res) => {
+    if (req.auth.perfil === "PROFISSIONAL") throw forbidden("Apenas dono e recepcao podem usar pacotes nos agendamentos.");
+    return ok(res, await agendamentoService.aplicarPacote(req.auth.tenantId, req.params.id, req.body?.agendamentoIds));
+  })
+);
+
 router.post(
   "/:id/pacotes/:pacoteClienteId/cancelar",
   asyncHandler(async (req, res) => {

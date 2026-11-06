@@ -336,6 +336,15 @@ router.patch(
     return agendamentoService.ajustar(req.auth.tenantId, req.params.id, { horaFim: b.horaFim, valorTotal: b.valorTotal, encaixe: toBool(b.encaixe) });
   })
 );
+// incluir / tirar / trocar procedimentos (e usar o pacote da cliente)
+router.put(
+  "/agendamentos/:id/servicos",
+  acao((req) => {
+    if (req.auth.perfil === "PROFISSIONAL") throw forbidden("Apenas dono e recepcao podem editar o agendamento.");
+    const b = req.body || {};
+    return agendamentoService.editarServicos(req.auth.tenantId, req.params.id, { servicoIds: b.servicoIds, usarPacote: toBool(b.usarPacote), encaixe: toBool(b.encaixe) });
+  })
+);
 router.post(
   "/agendamentos/:id/reagendar",
   acao(async (req) => {

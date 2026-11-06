@@ -943,7 +943,9 @@ model PacoteCliente {
   clienteId   String
   pacoteId    String
   nome        String // nome do pacote na data da venda
-  valorPago   Int
+  valorPago   Int // valor do pacote (no "por sessao" e o combinado, cobrado aos poucos)
+  // Paga a cada sessao: nada entra no caixa na venda; cada agendamento coberto cobra o valor da sessao.
+  porSessao   Boolean   @default(false)
   compradoEm  DateTime  @default(now())
   validoAte   DateTime?
   status      String    @default("ATIVO") // ATIVO | FINALIZADO | CANCELADO

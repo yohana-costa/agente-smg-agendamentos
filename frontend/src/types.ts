@@ -197,10 +197,11 @@ export interface PacoteCliente {
   pacoteId: string
   nome: string
   valorPago: number
+  porSessao: boolean
   compradoEm: string
   validoAte: string | null
   status: 'ATIVO' | 'FINALIZADO' | 'VENCIDO' | 'CANCELADO'
-  saldos: Array<{ id: string; servicoId: string; nome: string; total: number; usado: number; restante: number }>
+  saldos: Array<{ id: string; servicoId: string; nome: string; total: number; usado: number; restante: number; valorSessao: number }>
 }
 
 export interface Conflito {

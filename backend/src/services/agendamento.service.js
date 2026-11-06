@@ -772,6 +772,151 @@ async function ajustar(tenantId, id, { horaFim, valorTotal, encaixe = false } = 
   return obterSerializado(tenantId, id);
 }
 
+// ---------- procedimentos do agendamento ----------
+
+/**
+ * Inclui, tira ou troca procedimentos de um agendamento ja marcado (ex.: veio fazer mao e decidiu
+ * fazer pe e mao). O que continua fica como esta (preco gravado e sessao de pacote); o que sai
+ * devolve a sessao do pacote. usarPacote cobre com o pacote da cliente o que ainda nao esta coberto.
+ * Duracao so e recalculada quando a lista muda: aplicar pacote nao mexe no horario.
+ */
+async function editarServicos(tenantId, id, { servicoIds, usarPacote = false, encaixe = false } = {}) {
+  const ag = await obter(tenantId, id);
+  if (!["CONFIRMADO", "EM_ATENDIMENTO"].includes(ag.status)) throw badRequest("Só dá para mudar os procedimentos de agendamento confirmado ou em atendimento.");
+  if (ag.pagamentos.some((p) => p.status === "PENDENTE")) {
+    throw badRequest("Este agendamento tem uma cobrança em aberto. Espere o pagamento (ou cancele a cobrança) antes de mudar os procedimentos.");
+  }
+  const servicos = await disponibilidade.resolverServicos(tenantId, servicoIds, { apenasAtivos: false });
+  if (!disponibilidade.profissionaisHabilitados(servicos).includes(ag.profissionalId)) {
+    throw badRequest(`${ag.profissional?.nome || "O profissional"} não faz todos esses procedimentos. Confira em Serviços quem faz cada um.`);
+  }
+
+  // casa cada servico pedido com um item que ja estava no agendamento
+  const sobra = [...ag.servicos];
+  const plano = servicos.map((s) => {
+    const i = sobra.findIndex((it) => it.servicoId === s.id);
+    return { servico: s, item: i >= 0 ? sobra.splice(i, 1)[0] : null };
+  });
+  const removidos = sobra;
+  for (const p of plano) if (!p.item && !p.servico.ativo) throw badRequest(`${p.servico.nome} está inativo.`);
+  const mudouLista = removidos.length > 0 || plano.some((p) => !p.item);
+
+  let itens = plano.map((p, ordem) =>
+    p.item
+      ? { itemId: p.item.id, servicoId: p.item.servicoId, nome: p.item.nome, preco: p.item.preco, duracaoMin: p.item.duracaoMin, intervaloMin: p.item.intervaloMin, ordem, pacoteSaldoId: p.item.pacoteSaldoId, valorPacote: p.item.valorPacote, pacoteDevolvido: p.item.pacoteDevolvido }
+      : { itemId: null, servicoId: p.servico.id, nome: p.servico.nome, preco: p.servico.preco, duracaoMin: p.servico.duracaoMin, intervaloMin: p.servico.intervaloMin, ordem, pacoteSaldoId: null, valorPacote: 0, pacoteDevolvido: false }
+  );
+  const horarios = disponibilidade.calcularHorarios(ag.inicio, itens);
+  const pago = ag.pagamentos
+    .filter((p) => ["APROVADO", "REEMBOLSADO_PARCIAL", "REEMBOLSADO"].includes(p.status))
+    .reduce((acc, p) => acc + p.valorBruto, 0);
+
+  let cobertos = 0;
+  await prisma.$transaction(
+    async (tx) => {
+      await lockProfissional(tx, ag.profissionalId);
+      if (mudouLista && horarios.fimIntervalo > ag.fimIntervalo && !encaixe) {
+        const choques = await sobreposicoes(tx, { tenantId, profissionalId: ag.profissionalId, inicio: ag.inicio, fimIntervalo: horarios.fimIntervalo, excluirId: id });
+        if (choques.length) throw conflict("Com esses procedimentos o atendimento passa por cima de outro agendamento. Confirme o encaixe para continuar.", { requerEncaixe: true });
+      }
+      for (const r of removidos) {
+        if (r.pacoteSaldoId && !r.pacoteDevolvido) {
+          await tx.pacoteClienteSaldo.updateMany({ where: { id: r.pacoteSaldoId, usado: { gt: 0 } }, data: { usado: { decrement: 1 } } });
+        }
+      }
+      if (removidos.length) await tx.agendamentoServico.deleteMany({ where: { id: { in: removidos.map((r) => r.id) } } });
+
+      if (usarPacote) {
+        const semPacote = itens.filter((i) => !i.pacoteSaldoId || i.pacoteDevolvido);
+        const r = await pacotes.consumirNoAgendamento(tx, { tenantId, clienteId: ag.clienteId, itensServico: semPacote, inicio: ag.inicio });
+        cobertos = r.cobertos;
+        itens = itens.map((i) => r.itens.find((x) => x.ordem === i.ordem) || i);
+      }
+
+      for (const i of itens) {
+        const dados = { ordem: i.ordem, preco: i.preco, pacoteSaldoId: i.pacoteSaldoId, valorPacote: i.valorPacote, pacoteDevolvido: i.pacoteDevolvido };
+        if (i.itemId) await tx.agendamentoServico.update({ where: { id: i.itemId }, data: dados });
+        else await tx.agendamentoServico.create({ data: { agendamentoId: id, servicoId: i.servicoId, nome: i.nome, duracaoMin: i.duracaoMin, intervaloMin: i.intervaloMin, ...dados } });
+      }
+
+      const valorServicos = itens.reduce((acc, i) => acc + i.preco, 0);
+      const desconto = Math.min(ag.desconto, valorServicos + ag.valorProdutos);
+      // ajuste manual era sobre a lista antiga: com outro valor de servicos ele deixa de valer
+      const ajusteValor = valorServicos === ag.valorServicos ? ag.ajusteValor : 0;
+      const valorTotal = Math.max(0, valorServicos + ag.valorProdutos - desconto + ajusteValor);
+      if (valorTotal < pago) {
+        throw badRequest(`O novo valor (${brl(valorTotal)}) fica abaixo do que já foi pago (${brl(pago)}). Para devolver dinheiro, use Cancelar com reembolso.`);
+      }
+      await tx.agendamento.update({
+        where: { id },
+        data: {
+          valorServicos,
+          desconto,
+          ajusteValor,
+          valorTotal,
+          ...(mudouLista ? { fim: horarios.fim, fimIntervalo: horarios.fimIntervalo, encaixe: ag.encaixe || Boolean(encaixe) } : {}),
+        },
+      });
+    },
+    { timeout: 20000 }
+  );
+
+  log("agenda", "servicos_editados", { tenantId, id, de: ag.servicos.map((s) => s.nome), para: itens.map((i) => i.nome), cobertosPacote: cobertos });
+  notificarAgenda(tenantId, id, "ajustado");
+  return { ...(await obterSerializado(tenantId, id)), pacotesUsados: cobertos };
+}
+
+// Agendamentos futuros da cliente com procedimento que o pacote dela pode cobrir (pacote vendido
+// depois de ja ter marcado as sessoes). Simula o consumo em ordem de data para mostrar o que cabe.
+async function agendamentosParaPacote(tenantId, clienteId) {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  const saldos = await prisma.pacoteClienteSaldo.findMany({
+    where: { pacoteCliente: { tenantId, clienteId, status: { not: "CANCELADO" } } },
+    include: { pacoteCliente: { select: { validoAte: true } } },
+  });
+  const restante = saldos.filter((s) => s.usado < s.total).map((s) => ({ servicoId: s.servicoId, livre: s.total - s.usado, validoAte: s.pacoteCliente.validoAte }));
+  if (!restante.length) return [];
+  const futuros = await prisma.agendamento.findMany({
+    where: { tenantId, clienteId, status: "CONFIRMADO", inicio: { gte: zonedToUtc(zonedParts(new Date(), tenant.timezone).date, "00:00", tenant.timezone) } },
+    include: { servicos: { orderBy: { ordem: "asc" } }, pagamentos: true, profissional: { select: { nome: true } } },
+    orderBy: { inicio: "asc" },
+  });
+  const lista = [];
+  for (const a of futuros) {
+    if (a.pagamentos.some((p) => p.status === "PENDENTE")) continue;
+    const itens = a.servicos.map((s) => {
+      const jaCoberto = Boolean(s.pacoteSaldoId && !s.pacoteDevolvido);
+      const saldo = jaCoberto ? null : restante.find((r) => r.servicoId === s.servicoId && r.livre > 0 && (!r.validoAte || r.validoAte >= a.inicio));
+      if (saldo) saldo.livre -= 1;
+      return { nome: s.nome, preco: s.preco, jaCoberto, cabe: Boolean(saldo) };
+    });
+    if (!itens.some((i) => i.cabe)) continue;
+    const p = zonedParts(a.inicio, tenant.timezone);
+    lista.push({ id: a.id, data: p.date, hora: p.time, profissional: a.profissional?.nome || "", valorTotal: a.valorTotal, itens });
+  }
+  return lista;
+}
+
+/** Usa o pacote da cliente nos agendamentos escolhidos (os procedimentos continuam os mesmos). */
+async function aplicarPacote(tenantId, clienteId, agendamentoIds = []) {
+  const ags = await prisma.agendamento.findMany({
+    where: { tenantId, clienteId, id: { in: (agendamentoIds || []).map(String) } },
+    include: { servicos: { orderBy: { ordem: "asc" } } },
+    orderBy: { inicio: "asc" },
+  });
+  if (!ags.length) throw badRequest("Escolha os agendamentos.");
+  const resultado = [];
+  for (const a of ags) {
+    try {
+      const r = await editarServicos(tenantId, a.id, { servicoIds: a.servicos.map((s) => s.servicoId), usarPacote: true });
+      resultado.push({ id: a.id, ok: true, pacotesUsados: r.pacotesUsados, valorTotal: r.valorTotal });
+    } catch (error) {
+      resultado.push({ id: a.id, ok: false, erro: error.message });
+    }
+  }
+  return { sessoesUsadas: resultado.reduce((acc, r) => acc + (r.pacotesUsados || 0), 0), resultado };
+}
+
 // ---------- reagendamento ----------
 
 /**
@@ -931,4 +1076,7 @@ module.exports = {
   ajustar,
   receberPagamento,
   mudarParaPagarNoLocal,
+  editarServicos,
+  agendamentosParaPacote,
+  aplicarPacote,
 };

@@ -1,7 +1,8 @@
 // Pacotes de sessoes (ex.: 4 manicures por R$ 120).
 //
 // - O estabelecimento cadastra o pacote (Servicos/Produtos > Pacotes).
-// - Vende para o cliente pelo painel (ficha do cliente): o pagamento entra no caixa NA VENDA.
+// - Vende para o cliente pelo painel (ficha do cliente): o pagamento entra no caixa NA VENDA, ou
+//   "por sessao" (forma POR_SESSAO): nada entra na venda e cada agendamento cobra o valor da sessao.
 // - Cada agendamento coberto consome uma sessao: o servico entra com preco 0 (ja foi pago) e
 //   valorPacote = valor da sessao, que e a base da comissao do profissional.
 // - Cancelou o agendamento ou o servico nao foi realizado: a sessao volta para o saldo.
@@ -10,7 +11,7 @@ const prisma = require("../lib/prisma");
 const { badRequest, notFound } = require("../lib/errors");
 const { log, requireText, textOrNull, toInt } = require("../lib/helpers");
 
-const FORMAS_VENDA = ["DINHEIRO", "MAQUININHA", "PIX"];
+const FORMAS_VENDA = ["DINHEIRO", "MAQUININHA", "PIX", "POR_SESSAO"];
 
 function serializarPacote(p) {
   return {
@@ -79,10 +80,11 @@ function serializarPacoteCliente(pc) {
     pacoteId: pc.pacoteId,
     nome: pc.nome,
     valorPago: pc.valorPago,
+    porSessao: pc.porSessao,
     compradoEm: pc.compradoEm,
     validoAte: pc.validoAte,
     status: statusCalculado(pc),
-    saldos: pc.saldos.map((s) => ({ id: s.id, servicoId: s.servicoId, nome: s.nomeServico, total: s.total, usado: s.usado, restante: Math.max(0, s.total - s.usado) })),
+    saldos: pc.saldos.map((s) => ({ id: s.id, servicoId: s.servicoId, nome: s.nomeServico, total: s.total, usado: s.usado, restante: Math.max(0, s.total - s.usado), valorSessao: s.valorSessao })),
   };
 }
 
@@ -100,7 +102,8 @@ async function pacotesDoCliente(tenantId, clienteId) {
  * preco de tabela de cada servico: e esse valor por sessao que vira base de comissao.
  */
 async function venderPacote(tenantId, clienteId, { pacoteId, valor, forma } = {}) {
-  if (!FORMAS_VENDA.includes(forma)) throw badRequest("Escolha a forma de pagamento: dinheiro, maquininha ou Pix.");
+  if (!FORMAS_VENDA.includes(forma)) throw badRequest("Escolha a forma de pagamento: dinheiro, maquininha, Pix ou por sessão.");
+  const porSessao = forma === "POR_SESSAO";
   const cliente = await prisma.cliente.findFirst({ where: { id: clienteId, tenantId } });
   if (!cliente) throw notFound("Cliente não encontrado.");
   const pacote = await prisma.pacote.findFirst({ where: { id: pacoteId, tenantId, ativo: true }, include: { itens: { include: { servico: true } } } });
@@ -118,7 +121,7 @@ async function venderPacote(tenantId, clienteId, { pacoteId, valor, forma } = {}
 
   const r = await prisma.$transaction(async (tx) => {
     const pagamento =
-      valorPago > 0
+      valorPago > 0 && !porSessao
         ? await tx.pagamento.create({
             data: {
               tenantId,
@@ -142,6 +145,7 @@ async function venderPacote(tenantId, clienteId, { pacoteId, valor, forma } = {}
         pacoteId: pacote.id,
         nome: pacote.nome,
         valorPago,
+        porSessao,
         validoAte: pacote.validadeDias ? new Date(Date.now() + pacote.validadeDias * 86400000) : null,
         pagamentoId: pagamento?.id || null,
         saldos: { create: saldos },
@@ -149,7 +153,7 @@ async function venderPacote(tenantId, clienteId, { pacoteId, valor, forma } = {}
       include: { saldos: true },
     });
   });
-  log("pacotes", "vendido", { tenantId, clienteId, pacote: pacote.nome, valorPago, forma });
+  log("pacotes", "vendido", { tenantId, clienteId, pacote: pacote.nome, valorPago, forma, porSessao });
   return serializarPacoteCliente(r);
 }
 
@@ -182,7 +186,7 @@ async function consumirNoAgendamento(tx, { tenantId, clienteId, itensServico, in
         servicoId: item.servicoId,
         pacoteCliente: { tenantId, clienteId, status: { not: "CANCELADO" }, OR: [{ validoAte: null }, { validoAte: { gte: inicio } }] },
       },
-      include: { pacoteCliente: { select: { compradoEm: true } } },
+      include: { pacoteCliente: { select: { compradoEm: true, porSessao: true } } },
     });
     candidatos.sort((a, b) => new Date(a.pacoteCliente.compradoEm) - new Date(b.pacoteCliente.compradoEm));
     let usado = null;
@@ -196,7 +200,8 @@ async function consumirNoAgendamento(tx, { tenantId, clienteId, itensServico, in
     }
     if (usado) {
       cobertos += 1;
-      ajustados.push({ ...item, preco: 0, pacoteSaldoId: usado.id, valorPacote: usado.valorSessao });
+      // pago na venda: sai sem cobranca; por sessao: cobra a fatia do pacote
+      ajustados.push({ ...item, preco: usado.pacoteCliente.porSessao ? usado.valorSessao : 0, pacoteSaldoId: usado.id, valorPacote: usado.valorSessao, pacoteDevolvido: false });
     } else {
       ajustados.push(item);
     }

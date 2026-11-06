@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { errorMessage, get, post } from '../../../lib/api'
-import { brl, dateBr } from '../../../lib/format'
+import { brl, dateBr, dateLong } from '../../../lib/format'
 import { useAsync } from '../../../lib/hooks'
-import { ConfirmModal, ErrorBanner, Field, Modal, MoneyInput, Segmented } from '../../../components/ui'
+import { ConfirmModal, ErrorBanner, Field, Modal, MoneyInput, Segmented, SuccessBanner } from '../../../components/ui'
 import type { Pacote, PacoteCliente } from '../../../types'
 
 const STATUS: Record<PacoteCliente['status'], { label: string; cls: string }> = {
@@ -12,13 +12,23 @@ const STATUS: Record<PacoteCliente['status'], { label: string; cls: string }> = 
   CANCELADO: { label: 'Cancelado', cls: 'badge-gray' },
 }
 
-type Forma = 'DINHEIRO' | 'MAQUININHA' | 'PIX'
+type Forma = 'DINHEIRO' | 'MAQUININHA' | 'PIX' | 'POR_SESSAO'
+
+interface AgendamentoParaPacote {
+  id: string
+  data: string
+  hora: string
+  profissional: string
+  valorTotal: number
+  itens: Array<{ nome: string; preco: number; jaCoberto: boolean; cabe: boolean }>
+}
 
 /** Pacotes do cliente na ficha: saldo de sessões, venda e cancelamento. */
 export default function PacotesCliente({ clienteId, podeEditar }: { clienteId: string; podeEditar: boolean }) {
   const { data, loading, error, reload } = useAsync(() => get<PacoteCliente[]>(`/clientes/${encodeURIComponent(clienteId)}/pacotes`), [clienteId])
   const [vendendo, setVendendo] = useState(false)
   const [cancelando, setCancelando] = useState<PacoteCliente | null>(null)
+  const [aplicando, setAplicando] = useState(false)
   const lista = data || []
 
   return (
@@ -46,21 +56,30 @@ export default function PacotesCliente({ clienteId, podeEditar }: { clienteId: s
                 </div>
                 <div className="small muted">
                   {brl(pc.valorPago)} em {dateBr(String(pc.compradoEm).slice(0, 10))}
+                  {pc.porSessao ? ' · paga por sessão' : ''}
                 </div>
               </div>
               <div className="small" style={{ marginTop: 6 }}>
                 {pc.saldos.map((s) => (
                   <div key={s.id}>
                     {s.nome}: <strong>{s.restante}</strong> de {s.total} sessão(ões) restante(s)
+                    {pc.porSessao ? <span className="muted"> · {brl(s.valorSessao)} por sessão</span> : null}
                   </div>
                 ))}
               </div>
               <div className="row-between small muted" style={{ marginTop: 6 }}>
                 <span>{pc.validoAte ? `Válido até ${dateBr(String(pc.validoAte).slice(0, 10))}` : 'Sem validade'}</span>
                 {podeEditar && pc.status !== 'CANCELADO' ? (
-                  <button className="btn btn-sm btn-ghost" onClick={() => setCancelando(pc)}>
-                    Cancelar pacote
-                  </button>
+                  <span className="row" style={{ gap: 6 }}>
+                    {pc.status === 'ATIVO' ? (
+                      <button className="btn btn-sm" onClick={() => setAplicando(true)}>
+                        Usar nos horários já marcados
+                      </button>
+                    ) : null}
+                    <button className="btn btn-sm btn-ghost" onClick={() => setCancelando(pc)}>
+                      Cancelar pacote
+                    </button>
+                  </span>
                 ) : null}
               </div>
             </div>
@@ -73,6 +92,17 @@ export default function PacotesCliente({ clienteId, podeEditar }: { clienteId: s
           onClose={() => setVendendo(false)}
           onSold={() => {
             setVendendo(false)
+            reload()
+            setAplicando(true)
+          }}
+        />
+      ) : null}
+      {aplicando ? (
+        <AplicarPacoteModal
+          clienteId={clienteId}
+          onClose={() => setAplicando(false)}
+          onDone={() => {
+            setAplicando(false)
             reload()
           }}
         />
@@ -88,7 +118,9 @@ export default function PacotesCliente({ clienteId, podeEditar }: { clienteId: s
             reload()
           }}
         >
-          {cancelando.saldos.some((s) => s.restante < s.total)
+          {cancelando.porSessao
+            ? 'As sessões restantes deixam de valer. Como o pacote é pago por sessão, nada foi recebido na venda. Os horários já marcados com o pacote continuam com o valor da sessão.'
+            : cancelando.saldos.some((s) => s.restante < s.total)
             ? 'O cliente já usou sessões deste pacote. As sessões restantes deixam de valer e o valor recebido continua no caixa (devolva o que for combinado com o cliente).'
             : 'Nenhuma sessão foi usada: o pacote é cancelado e o recebimento sai do caixa. Devolva o valor ao cliente.'}
         </ConfirmModal>
@@ -105,6 +137,8 @@ function VenderPacoteModal({ clienteId, onClose, onSold }: { clienteId: string; 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const escolhido = (pacotes || []).find((p) => p.id === pacoteId)
+  const sessoes = escolhido ? escolhido.itens.reduce((acc, i) => acc + i.quantidade, 0) : 0
+  const porSessao = forma === 'POR_SESSAO'
 
   async function vender() {
     setError('')
@@ -129,7 +163,7 @@ function VenderPacoteModal({ clienteId, onClose, onSold }: { clienteId: string; 
             Cancelar
           </button>
           <button className="btn btn-primary" onClick={vender} disabled={busy || !escolhido}>
-            {busy ? 'Registrando...' : `Registrar venda${escolhido ? ` de ${brl(valor)}` : ''}`}
+            {busy ? 'Registrando...' : porSessao ? 'Registrar pacote' : `Registrar venda${escolhido ? ` de ${brl(valor)}` : ''}`}
           </button>
         </>
       }
@@ -164,7 +198,7 @@ function VenderPacoteModal({ clienteId, onClose, onSold }: { clienteId: string; 
                 {escolhido.validadeDias ? ` · validade ${escolhido.validadeDias} dias` : ''}
               </div>
             ) : null}
-            <Field label="Valor cobrado" hint="Altere se der desconto.">
+            <Field label="Valor do pacote" hint="Altere se der desconto.">
               <MoneyInput value={valor} onChange={setValor} />
             </Field>
             <Field label="Forma de pagamento">
@@ -173,15 +207,111 @@ function VenderPacoteModal({ clienteId, onClose, onSold }: { clienteId: string; 
                   { key: 'PIX', label: 'Pix' },
                   { key: 'MAQUININHA', label: 'Maquininha' },
                   { key: 'DINHEIRO', label: 'Dinheiro' },
+                  { key: 'POR_SESSAO', label: 'Paga por sessão' },
                 ]}
                 value={forma}
                 onChange={setForma}
               />
             </Field>
-            <div className="small muted">O valor entra no caixa agora. Nos agendamentos, os serviços cobertos pelo pacote saem sem cobrança.</div>
+            <div className="small muted">
+              {porSessao
+                ? `Nada entra no caixa agora. O valor é dividido pelas ${sessoes} sessões (cerca de ${brl(Math.round(valor / Math.max(1, sessoes)))} cada) e cada agendamento coberto cobra a sua parte no dia.`
+                : 'O valor entra no caixa agora. Nos agendamentos, os serviços cobertos pelo pacote saem sem cobrança.'}
+            </div>
           </>
         )}
         <ErrorBanner message={error} />
+      </div>
+    </Modal>
+  )
+}
+
+/** Pacote vendido depois de já ter marcado as sessões: usa o pacote nos agendamentos já marcados. */
+function AplicarPacoteModal({ clienteId, onClose, onDone }: { clienteId: string; onClose: () => void; onDone: () => void }) {
+  const { data, loading, error } = useAsync(() => get<AgendamentoParaPacote[]>(`/clientes/${encodeURIComponent(clienteId)}/pacotes/agendamentos`), [clienteId])
+  const [desmarcados, setDesmarcados] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState('')
+  const [resultado, setResultado] = useState('')
+  const lista = data || []
+  const escolhidos = lista.filter((a) => !desmarcados.includes(a.id)).map((a) => a.id)
+
+  async function aplicar() {
+    setBusy(true)
+    setErro('')
+    try {
+      const r = await post<{ sessoesUsadas: number; resultado: Array<{ ok: boolean; erro?: string }> }>(`/clientes/${encodeURIComponent(clienteId)}/pacotes/aplicar`, { agendamentoIds: escolhidos })
+      const falhas = r.resultado.filter((x) => !x.ok)
+      if (falhas.length) setErro(`${falhas.length} agendamento(s) não foram alterados: ${falhas.map((x) => x.erro).join(' ')}`)
+      setResultado(`${r.sessoesUsadas} sessão(ões) do pacote usada(s) nos horários marcados.`)
+    } catch (e) {
+      setErro(errorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="Usar o pacote nos horários já marcados"
+      onClose={resultado ? onDone : onClose}
+      footer={
+        <>
+          <button className="btn" onClick={resultado ? onDone : onClose} disabled={busy}>
+            {resultado ? 'Fechar' : 'Agora não'}
+          </button>
+          {!resultado && lista.length ? (
+            <button className="btn btn-primary" onClick={aplicar} disabled={busy || !escolhidos.length}>
+              {busy ? 'Aplicando...' : `Usar o pacote em ${escolhidos.length} horário(s)`}
+            </button>
+          ) : null}
+        </>
+      }
+    >
+      <div className="stack">
+        <ErrorBanner message={error || erro} />
+        <SuccessBanner message={resultado} />
+        {loading ? (
+          <div className="muted small">Procurando horários marcados...</div>
+        ) : !lista.length ? (
+          <div className="small muted">Nenhum horário já marcado que esse pacote cubra. Nos próximos agendamentos, marque "Usar pacote do cliente" ao agendar.</div>
+        ) : (
+          <>
+            <div className="small muted">Horários da cliente com procedimento do pacote. Os marcados passam a usar uma sessão do pacote (o horário não muda).</div>
+            {lista.map((a) => (
+              <label key={a.id} className="row small" style={{ gap: 8, alignItems: 'flex-start' }}>
+                <input
+                  type="checkbox"
+                  checked={!desmarcados.includes(a.id)}
+                  disabled={Boolean(resultado)}
+                  onChange={(e) => setDesmarcados((x) => (e.target.checked ? x.filter((i) => i !== a.id) : [...x, a.id]))}
+                />
+                <span>
+                  <strong>
+                    {dateLong(a.data)} às {a.hora}
+                  </strong>
+                  {a.profissional ? <span className="muted"> · {a.profissional}</span> : null}
+                  <br />
+                  {a.itens.map((i, n) => (
+                    <span key={n}>
+                      {n ? ' + ' : ''}
+                      {i.nome}
+                      {i.cabe ? (
+                        <span className="badge badge-primary" style={{ marginLeft: 4 }}>
+                          pacote
+                        </span>
+                      ) : i.jaCoberto ? (
+                        <span className="muted"> (já no pacote)</span>
+                      ) : (
+                        <span className="muted"> ({brl(i.preco)})</span>
+                      )}
+                    </span>
+                  ))}
+                </span>
+              </label>
+            ))}
+          </>
+        )}
       </div>
     </Modal>
   )
