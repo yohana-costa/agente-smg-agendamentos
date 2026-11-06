@@ -8,7 +8,7 @@ const env = require("../config/env");
 const events = require("../lib/events");
 const { gerarResposta } = require("../lib/ai-client");
 const { normalizePhone, log } = require("../lib/helpers");
-const { addMinutes } = require("../lib/time");
+const { addMinutes, todayStr } = require("../lib/time");
 const { getAgenteConfig, obterConversa, registrarMensagem, enviarTexto, registrarStatusEnvio } = require("../services/whatsapp/whatsapp.service");
 const { parseUazapi, parseMeta } = require("../services/whatsapp/providers");
 const { textoDaMidia } = require("../services/whatsapp/midia.service");
@@ -350,6 +350,8 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
         linkJaEnviado,
         mesCitado: await mesCitadoNaConversa(conversaId),
         falasDaEquipe: falas,
+        funcionamento: await prisma.horarioFuncionamento.findMany({ where: { tenantId: tenant.id } }),
+        diasFechados: (await prisma.diaFechado.findMany({ where: { tenantId: tenant.id, data: { gte: todayStr(tenant.timezone) } }, select: { data: true } })).map((d) => d.data),
       });
       const history = await historico(conversaId);
       const gerar = (extra = []) =>

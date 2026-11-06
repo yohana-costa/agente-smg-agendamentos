@@ -14,16 +14,49 @@ const REGRAS = fs.readFileSync(path.join(__dirname, "prompt.md"), "utf8");
 
 // Calendario pronto dos proximos dias: sem ele o modelo erra a conta de "sexta" -> data
 // (em 13/10/2026, uma terca, respondeu "sexta-feira, dia 14/10").
-function proximosDias(hoje, quantidade = 14) {
+// Dia fechado vem marcado no calendario: sem isso a IA respondeu "Sim, atendemos segunda-feira"
+// com a Studio Bella fechada as segundas (06/11/2026).
+function proximosDias(hoje, quantidade = 14, { funcionamento = [], diasFechados = [] } = {}) {
   const base = new Date(`${hoje}T12:00:00Z`);
   const linhas = [];
   for (let i = 0; i < quantidade; i++) {
     const d = new Date(base.getTime() + i * 86400000);
     const iso = d.toISOString().slice(0, 10);
     const rotulo = i === 0 ? " (hoje)" : i === 1 ? " (amanha)" : "";
-    linhas.push(`- ${WEEKDAY_NAMES[d.getUTCDay()]} ${iso.slice(8, 10)}/${iso.slice(5, 7)} = ${iso}${rotulo}`);
+    const rotina = funcionamento.find((h) => h.diaSemana === d.getUTCDay());
+    const fechado = diasFechados.includes(iso) || (rotina && !rotina.aberto) ? " FECHADO, nao atende" : "";
+    linhas.push(`- ${WEEKDAY_NAMES[d.getUTCDay()]} ${iso.slice(8, 10)}/${iso.slice(5, 7)} = ${iso}${rotulo}${fechado}`);
   }
   return linhas.join("\n");
+}
+
+// Resumo pronto ("terca e quarta das 10:00 as 18:00; ..."): com so a lista, a IA respondeu
+// "qual dia voces abrem?" citando um dia so.
+function resumoFuncionamento(funcionamento) {
+  const ordem = [1, 2, 3, 4, 5, 6, 0];
+  const grupos = [];
+  for (const n of ordem) {
+    const h = funcionamento.find((x) => x.diaSemana === n);
+    const chave = h && h.aberto ? `das ${h.inicio} as ${h.fim}` : null;
+    const ultimo = grupos[grupos.length - 1];
+    if (ultimo && ultimo.chave === chave) ultimo.dias.push(WEEKDAY_NAMES[n]);
+    else grupos.push({ chave, dias: [WEEKDAY_NAMES[n]] });
+  }
+  const nomes = (dias) => (dias.length > 2 ? `${dias[0]} a ${dias[dias.length - 1]}` : dias.join(" e "));
+  const abertos = grupos.filter((g) => g.chave).map((g) => `${nomes(g.dias)} ${g.chave}`);
+  const fechados = grupos.filter((g) => !g.chave).flatMap((g) => g.dias);
+  return `Abre ${abertos.join("; ")}.${fechados.length ? ` Fechado: ${fechados.join(" e ")}.` : ""}`;
+}
+
+function blocoFuncionamento(funcionamento) {
+  if (!funcionamento.length) return [];
+  return [
+    "## Dias e horarios de funcionamento",
+    resumoFuncionamento(funcionamento),
+    "Pergunta \"atende tal dia?\" ou \"abre tal dia?\": responda por este resumo e pelo calendario acima. Dia FECHADO: diga que a clinica nao abre nesse dia e ofereca o proximo dia aberto. Nunca diga que atende num dia fechado nem troque \"fechado\" por \"nao tem horario\".",
+    "Pergunta \"quais dias voces abrem?\": responda numa mensagem so com TODOS os dias abertos do resumo, sem listar dia por dia.",
+    "",
+  ];
 }
 
 function saudacaoDoHorario(hora) {
@@ -61,7 +94,7 @@ function regrasPagamento(tenant, pagamentoDisponivel) {
   ];
 }
 
-function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true, linkJaEnviado = false, mesCitado = null, falasDaEquipe = [] }) {
+function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true, linkJaEnviado = false, mesCitado = null, falasDaEquipe = [], funcionamento = [], diasFechados = [] }) {
   const hoje = todayStr(tenant.timezone);
   const agora = zonedParts(new Date(), tenant.timezone);
   const linkSite = `${env.publicAppUrl}/s/${tenant.slug}`;
@@ -91,7 +124,8 @@ function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true
       : "",
     `Hoje e ${WEEKDAY_NAMES[agora.weekday]}, ${formatDateBr(new Date(), tenant.timezone)} (${hoje}), agora sao ${String(agora.hour).padStart(2, "0")}:${String(agora.minute).padStart(2, "0")} (use "${saudacaoDoHorario(agora.hour)}" ao cumprimentar). Fuso: ${tenant.timezone}.`,
     "Calendario dos proximos dias (use esta lista para converter dia da semana em data; nunca calcule por conta propria):",
-    proximosDias(hoje),
+    proximosDias(hoje, 14, { funcionamento, diasFechados }),
+    ...blocoFuncionamento(funcionamento),
     // "no dia 23" depois de a conversa toda ser sobre dezembro virava 23/11 (Studio Bella, 04/11/2026)
     mesCitado
       ? `Mes que a cliente citou por ultimo nesta conversa: ${mesCitado}. Dia sem mes ("dia 23") e desse mes, a menos que ela diga outro.`
@@ -267,6 +301,17 @@ function buildTools(ctx) {
         };
         if (data) {
           const r = await disponibilidade.listarHorarios({ tenantId, servicoIds: servico_ids, profissionalId: profissional_id, data });
+          // Clinica fechada no dia: o sistema avisa (so "sem horario" fez a IA dizer que atendia na segunda)
+          const fechado = r.profissionais.length > 0 && r.profissionais.every((p) => ["FECHADO_ROTINA", "FECHADO_FORA_ROTINA"].includes(p.motivo));
+          if (fechado) {
+            return {
+              ok: true,
+              data,
+              diaSemana: WEEKDAY_NAMES[new Date(`${data}T12:00:00Z`).getUTCDay()],
+              fechado: true,
+              aviso: "A clinica NAO abre neste dia. Diga isso a cliente (nao diga so que nao tem horario) e ofereca o proximo dia aberto, consultando sem data ou com a data dele.",
+            };
+          }
           return {
             ok: true,
             data,
@@ -277,7 +322,13 @@ function buildTools(ctx) {
             ...(desejo !== null ? { horaDesejadaLivre: r.profissionais.some((p) => p.horarios.includes(hora_desejada)) } : {}),
             profissionais: r.profissionais.map((p) => {
               const livres = ordenar(p.horarios.filter(noPeriodo));
-              return { id: p.profissionalId, nome: p.nome, horarios: livres.slice(0, 3), outrosHorariosLivres: Math.max(0, livres.length - 3) };
+              return {
+                id: p.profissionalId,
+                nome: p.nome,
+                horarios: livres.slice(0, 3),
+                outrosHorariosLivres: Math.max(0, livres.length - 3),
+                ...(p.motivo === "FOLGA_SEMANAL" ? { observacao: `${p.nome} nao atende neste dia da semana` } : {}),
+              };
             }),
             orientacao:
               "Ofereca no maximo 3 opcoes, sem lista longa. A lista e um resumo: antes de dizer que um horario pedido nao esta livre, consulte de novo com hora_desejada.",
