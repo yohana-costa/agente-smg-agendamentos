@@ -28,6 +28,8 @@ function dadosPagamento(tenant) {
     viaOauth: Boolean(tenant.mpRefreshToken),
     contaId: tenant.mpUserId || null,
     oauthDisponivel: mpOauth.configurado(),
+    pagarNoLocalAtivo: tenant.pagarNoLocalAtivo,
+    mesesPagamentoAntecipado: tenant.mesesPagamentoAntecipado || [],
   };
 }
 
@@ -134,6 +136,20 @@ router.patch(
 router.get(
   "/pagamentos/conectar",
   asyncHandler(async (req, res) => ok(res, mpOauth.iniciarConexao(req.auth.tenantId)))
+);
+
+router.patch(
+  "/pagamentos/regras",
+  asyncHandler(async (req, res) => {
+    const b = req.body || {};
+    const data = {};
+    if (b.pagarNoLocalAtivo !== undefined) data.pagarNoLocalAtivo = toBool(b.pagarNoLocalAtivo);
+    if (Array.isArray(b.mesesPagamentoAntecipado)) {
+      data.mesesPagamentoAntecipado = [...new Set(b.mesesPagamentoAntecipado.map((m) => toInt(m, 0)).filter((m) => m >= 1 && m <= 12))].sort((x, y) => x - y);
+    }
+    const t = await prisma.tenant.update({ where: { id: req.auth.tenantId }, data });
+    return ok(res, dadosPagamento(t));
+  })
 );
 
 router.post(

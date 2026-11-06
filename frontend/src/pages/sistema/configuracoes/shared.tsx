@@ -16,7 +16,15 @@ export interface ConfigDados {
   politicas: { prazoCancelamentoMin: number; reembolsoForaPrazoPct: number; reembolsoNoShowPct: number; reembolsoIntegralDescontaTaxa: boolean }
   agenda: { toleranciaPendenteMin: number; intervaloSlotsMin: number }
   metas: { metaServicosMes: number; metaValorMes: number }
-  pagamentos: { modo: 'simulado' | 'mercadopago' | 'desconectado'; conectado: boolean; viaOauth: boolean; contaId: string | null; oauthDisponivel: boolean }
+  pagamentos: {
+    modo: 'simulado' | 'mercadopago' | 'desconectado'
+    conectado: boolean
+    viaOauth: boolean
+    contaId: string | null
+    oauthDisponivel: boolean
+    pagarNoLocalAtivo: boolean
+    mesesPagamentoAntecipado: number[]
+  }
   site: { url: string; siteTitulo: string | null; siteDescricao: string | null; siteCorPrimaria: string | null; siteLogoUrl: string | null; siteBannerUrl: string | null }
   integracoes: { googleConfigurado: boolean }
   plano: { plano: string; ativo: boolean; desde: string }

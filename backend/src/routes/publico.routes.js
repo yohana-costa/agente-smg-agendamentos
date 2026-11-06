@@ -89,6 +89,8 @@ router.get(
       },
       reservaMinutos: env.reservaMinutos,
       pagamentoOnline: require("../services/pagamentos/gateway").modo(t) !== "desconectado",
+      // Pagar no local: a cliente escolhe, menos nos meses de pagamento antecipado (1-12).
+      pagarNoLocal: { ativo: t.pagarNoLocalAtivo, mesesAntecipado: t.mesesPagamentoAntecipado || [] },
     });
   })
 );
@@ -124,7 +126,8 @@ router.get(
   })
 );
 
-// Fluxo de agendamento do site: reserva por 15 minutos com status Aguardando pagamento.
+// Fluxo de agendamento do site: reserva por 15 minutos com status Aguardando pagamento, ou ja
+// confirmado quando a cliente escolhe pagar no local (se o estabelecimento libera no mes).
 router.post(
   "/:slug/agendamentos",
   asyncHandler(async (req, res) => {
@@ -140,6 +143,7 @@ router.post(
       hora: b.hora,
       produtos: Array.isArray(b.produtos) ? b.produtos : [],
       cupomCodigo: textOrNull(b.cupom),
+      pagamento: b.pagamento === "LOCAL" ? "LOCAL" : undefined,
     });
     const pagamento = ag.pagamentos.find((p) => p.status === "PENDENTE");
     return ok(res, {

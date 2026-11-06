@@ -323,6 +323,14 @@ router.delete(
     return agendamentoService.excluir(req.auth.tenantId, req.params.id);
   })
 );
+router.patch(
+  "/agendamentos/:id/ajustar",
+  acao((req) => {
+    if (req.auth.perfil === "PROFISSIONAL") throw forbidden("Apenas dono e recepcao podem editar o agendamento.");
+    const b = req.body || {};
+    return agendamentoService.ajustar(req.auth.tenantId, req.params.id, { horaFim: b.horaFim, valorTotal: b.valorTotal, encaixe: toBool(b.encaixe) });
+  })
+);
 router.post(
   "/agendamentos/:id/reagendar",
   acao(async (req) => {

@@ -7,7 +7,7 @@ const env = require("../../config/env");
 const disponibilidade = require("../../services/disponibilidade.service");
 const agendamentoService = require("../../services/agendamento.service");
 const { encontrarOuCriarCliente } = require("../../services/cliente.service");
-const { zonedParts, todayStr, WEEKDAY_NAMES, formatDateBr } = require("../../lib/time");
+const { zonedParts, zonedToUtc, todayStr, WEEKDAY_NAMES, formatDateBr } = require("../../lib/time");
 const { brl } = require("../../lib/helpers");
 
 const REGRAS = fs.readFileSync(path.join(__dirname, "prompt.md"), "utf8");
@@ -37,12 +37,34 @@ function saudacaoDoHorario(hora) {
  * agente) nao consegue concluir agendamento, porque o sistema exige pagamento online; entao o
  * agente nao manda o link do site e leva o pedido para a equipe confirmar.
  * linkJaEnviado: o link do site ja apareceu na conversa (nao repetir).
+ * Pagar no local (tenant.pagarNoLocalAtivo): a cliente escolhe entre pagar online agora ou na
+ * clinica, menos nos meses de tenant.mesesPagamentoAntecipado. Com isso da para agendar mesmo
+ * sem Mercado Pago, nos meses que aceitam pagar no local.
  */
+const MESES = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
+function regrasPagamento(tenant, pagamentoDisponivel) {
+  if (!tenant.pagarNoLocalAtivo) return [];
+  const meses = (tenant.mesesPagamentoAntecipado || []).map((m) => MESES[m - 1]).filter(Boolean).join(", ");
+  if (!pagamentoDisponivel) {
+    return [
+      "## Pagamento",
+      "O pagamento e feito no dia, na clinica: use `criar_agendamento` com pagamento \"local\" (o horario ja fica confirmado, sem link). Nao fale de pagamento online.",
+      meses ? `Atendimentos em ${meses} pedem pagamento antecipado: para esses, nao agende, use \`consultar_equipe\` com tipo "agendamento".` : "",
+    ].filter(Boolean);
+  }
+  return [
+    "## Pagamento",
+    "A cliente escolhe: pagar agora pelo link (Pix ou cartao) ou pagar no dia, na clinica. Antes de `criar_agendamento`, pergunte em uma frase curta como ela prefere e passe `pagamento` \"online\" ou \"local\". Pagando no local o horario ja fica confirmado e nao tem link.",
+    meses ? `Excecao: atendimentos em ${meses} so sao confirmados com pagamento online antecipado. Nesses meses nao ofereca pagar no local; explique com naturalidade e use pagamento "online".` : "",
+  ].filter(Boolean);
+}
+
 function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true, linkJaEnviado = false, mesCitado = null, falasDaEquipe = [] }) {
   const hoje = todayStr(tenant.timezone);
   const agora = zonedParts(new Date(), tenant.timezone);
   const linkSite = `${env.publicAppUrl}/s/${tenant.slug}`;
-  const blocoAgendamento = pagamentoDisponivel
+  const blocoAgendamento = pagamentoDisponivel || tenant.pagarNoLocalAtivo
     ? [
         "## Link do site para agendar",
         linkSite,
@@ -51,6 +73,7 @@ function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true
           ? "O link JA foi enviado nesta conversa: nao mande de novo, a menos que a cliente peca."
           : "O link ainda nao foi enviado nesta conversa.",
         "Agendar pela conversa tambem funciona: servico, dia e horario confirmados por `consultar_horarios`, nome da cliente, `criar_agendamento` e envio do link de pagamento que ele devolve (o horario fica reservado por 15 minutos e so e confirmado apos o pagamento).",
+        ...regrasPagamento(tenant, pagamentoDisponivel),
       ]
     : [
         "## Agendamento (instrucao interna: nunca comente nada disto com a cliente)",
@@ -153,7 +176,7 @@ function buildTools(ctx) {
       description: "Retorna o link do site para a cliente agendar sozinha. Use so quando ela pedir o link ou quiser agendar sozinha, e nunca se o link ja foi enviado na conversa.",
       schema: z.object({}),
       handler: async () => {
-        if (!ctx.pagamentoDisponivel) return { ok: false, error: "Agendamento online indisponivel neste estabelecimento. Use consultar_equipe com tipo agendamento." };
+        if (!ctx.pagamentoDisponivel && !tenant.pagarNoLocalAtivo) return { ok: false, error: "Agendamento online indisponivel neste estabelecimento. Use consultar_equipe com tipo agendamento." };
         return { ok: true, link: `${env.publicAppUrl}/s/${tenant.slug}` };
       },
     },
@@ -269,21 +292,28 @@ function buildTools(ctx) {
     {
       name: "criar_agendamento",
       description:
-        "Registra o agendamento com status Aguardando pagamento e retorna o link de pagamento. Use somente horario retornado por consultar_horarios.",
+        "Registra o agendamento. Pagamento online: fica Aguardando pagamento e retorna o link. Pagamento local (quando permitido): ja fica confirmado, sem link. Use somente horario retornado por consultar_horarios.",
       schema: z.object({
         servico_ids: z.array(z.string()).min(1),
         profissional_id: z.string(),
         data: z.string().describe("AAAA-MM-DD"),
         hora: z.string().describe("HH:mm"),
         nome_cliente: z.string().optional().describe("Nome do cliente, se ainda nao cadastrado"),
+        pagamento: z.enum(["online", "local"]).optional().describe("online = link agora; local = paga no dia, na clinica (so se o estabelecimento permite)"),
       }),
       handler: async (entrada) => {
-        if (!ctx.pagamentoDisponivel) {
+        const { data, hora, nome_cliente } = entrada;
+        const local = entrada.pagamento === "local" || (!ctx.pagamentoDisponivel && tenant.pagarNoLocalAtivo);
+        if (!ctx.pagamentoDisponivel && !local) {
           return { ok: false, error: "Agendamento pela conversa indisponivel aqui (sem pagamento online). Use consultar_equipe com tipo agendamento. Nao fale disso com a cliente." };
+        }
+        if (local && /^\d{4}-\d{2}-\d{2}$/.test(data) && /^\d{2}:\d{2}$/.test(hora) && !agendamentoService.aceitaPagarNoLocal(tenant, zonedToUtc(data, hora, tenant.timezone))) {
+          return ctx.pagamentoDisponivel
+            ? { ok: false, error: "Neste mes o pagamento e antecipado: so da para agendar com pagamento online. Explique isso a cliente com naturalidade e, se ela aceitar, chame de novo com pagamento online." }
+            : { ok: false, error: "Neste mes o agendamento exige pagamento antecipado. Use consultar_equipe com tipo agendamento. Nao fale de sistema com a cliente." };
         }
         const servico_ids = await idsDeServicos(entrada.servico_ids);
         const profissional_id = await idDeProfissional(entrada.profissional_id);
-        const { data, hora, nome_cliente } = entrada;
         const cliente = await clienteAtual();
         if (!cliente && !nome_cliente) return { ok: false, error: "Pergunte o nome do cliente antes de agendar." };
         const ag = await agendamentoService.criar({
@@ -293,6 +323,7 @@ function buildTools(ctx) {
           profissionalId: profissional_id,
           data,
           hora,
+          pagamento: local ? "LOCAL" : undefined,
           ...(cliente ? { clienteId: cliente.id } : { cliente: { telefone, nome: nome_cliente } }),
         });
         ctx.cliente = await clienteAtual();

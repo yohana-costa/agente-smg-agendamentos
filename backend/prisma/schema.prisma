@@ -169,6 +169,11 @@ model Tenant {
   siteLogoUrl     String?
   siteBannerUrl   String?
 
+  // Site e agente: a cliente pode escolher pagar no local (agendamento ja confirmado), exceto
+  // nos meses de mesesPagamentoAntecipado (1-12), em que o pagamento online antes continua obrigatorio.
+  pagarNoLocalAtivo        Boolean @default(false)
+  mesesPagamentoAntecipado Int[]   @default([])
+
   // Pagamentos (gateway SMG -> Mercado Pago)
   mpAccessToken String?
   mpPublicKey   String?
@@ -468,6 +473,8 @@ model Agendamento {
   valorServicos  Int               @default(0)
   valorProdutos  Int               @default(0)
   desconto       Int               @default(0)
+  // Ajuste manual do valor no painel (positivo = cobrou a mais, negativo = a menos que a tabela).
+  ajusteValor    Int               @default(0)
   valorTotal     Int               @default(0)
   cupomId        String?
   recompensaId   String?

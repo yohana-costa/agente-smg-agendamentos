@@ -50,6 +50,8 @@ export interface SitePublico {
   reservaMinutos: number
   /** false quando o estabelecimento ainda nao ligou o pagamento online */
   pagamentoOnline?: boolean
+  /** A cliente pode escolher pagar na clinica, menos nos meses de pagamento antecipado (1-12). */
+  pagarNoLocal?: { ativo: boolean; mesesAntecipado: number[] }
 }
 
 export interface HorariosResposta {

@@ -1,8 +1,64 @@
 import { useEffect, useState } from 'react'
-import { errorMessage, get, post } from '../../../lib/api'
+import { errorMessage, get, patch, post } from '../../../lib/api'
 import { navigate, useQueryParam } from '../../../lib/router'
-import { Card, ConfirmModal, ErrorBanner, SuccessBanner } from '../../../components/ui'
-import type { ConfigDados } from './shared'
+import { Card, ConfirmModal, ErrorBanner, SuccessBanner, Toggle } from '../../../components/ui'
+import { SaveBar, useSalvar, type ConfigDados } from './shared'
+
+const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+const MESES_LONGOS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+
+/** Site e agente: a cliente escolhe pagar online ou na clínica, menos nos meses marcados. */
+function PagarNoLocal({ dados, onChange }: { dados: ConfigDados; onChange: (p: Partial<ConfigDados>) => void }) {
+  const pg = dados.pagamentos
+  const [ativo, setAtivo] = useState(pg.pagarNoLocalAtivo)
+  const [meses, setMeses] = useState<number[]>(pg.mesesPagamentoAntecipado || [])
+  const s = useSalvar()
+
+  const alternarMes = (m: number) => setMeses((atual) => (atual.includes(m) ? atual.filter((x) => x !== m) : [...atual, m].sort((a, b) => a - b)))
+
+  const salvar = () =>
+    s.salvar(async () => {
+      const r = await patch<ConfigDados['pagamentos']>('/configuracoes/pagamentos/regras', { pagarNoLocalAtivo: ativo, mesesPagamentoAntecipado: meses })
+      onChange({ pagamentos: r })
+    }, 'Regras de pagamento salvas. Valem para os próximos agendamentos.')
+
+  return (
+    <Card title="Pagar no local" subtitle="No site e no WhatsApp, a cliente pode escolher pagar agora (Pix ou cartão) ou pagar no dia, na clínica.">
+      <div className="stack">
+        <Toggle checked={ativo} onChange={setAtivo} label="Permitir que a cliente escolha pagar no local" />
+        {ativo ? (
+          <>
+            <div>
+              <div className="strong small" style={{ marginBottom: 6 }}>
+                Meses com pagamento antecipado obrigatório
+              </div>
+              <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                {MESES.map((nome, i) => {
+                  const m = i + 1
+                  const sel = meses.includes(m)
+                  return (
+                    <button key={m} type="button" className={`btn btn-sm ${sel ? 'btn-primary' : 'btn-ghost'}`} aria-pressed={sel} onClick={() => alternarMes(m)}>
+                      {nome}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <p className="small muted">
+              {meses.length
+                ? `Atendimentos em ${meses.map((m) => MESES_LONGOS[m - 1]).join(', ')} só são confirmados com o pagamento online antes. Nos outros meses, a cliente escolhe.`
+                : 'Nenhum mês marcado: a cliente sempre pode escolher pagar no local.'}{' '}
+              Quem escolhe pagar no local já fica com o horário confirmado, e o valor é recebido ao finalizar o atendimento.
+            </p>
+          </>
+        ) : (
+          <p className="small muted">Desligado: todo agendamento pelo site e pelo WhatsApp exige o pagamento online antes.</p>
+        )}
+        <SaveBar {...s} onSave={salvar} label="Salvar regras de pagamento" />
+      </div>
+    </Card>
+  )
+}
 
 /**
  * Conexão com o Mercado Pago pelo botão "Conectar" (OAuth), igual ao Gestor SMG varejo.
@@ -84,6 +140,8 @@ export function Pagamentos({ dados, onChange }: { dados: ConfigDados; onChange: 
         </div>
         {!pg.oauthDisponivel ? <p className="small muted">A conexão com o Mercado Pago ainda não foi configurada na plataforma. Fale com o suporte da SMG.</p> : null}
       </Card>
+
+      <PagarNoLocal dados={dados} onChange={onChange} />
 
       {desconectar ? (
         <ConfirmModal

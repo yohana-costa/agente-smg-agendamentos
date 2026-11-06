@@ -105,6 +105,8 @@ export interface Agendamento {
   valorServicos: number
   valorProdutos: number
   desconto: number
+  /** ajuste manual do valor no painel (positivo = a mais, negativo = a menos) */
+  ajusteValor?: number
   valorTotal: number
   expiraEm: string | null
   expirado: boolean

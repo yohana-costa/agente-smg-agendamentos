@@ -53,6 +53,13 @@ export default function BookingWizard({ slug, site }: { slug: string; site: Site
   // Sem pagamento online o agendamento pelo site nao fecha: avisa ja no comeco, em vez de deixar
   // o cliente preencher tudo e so descobrir no ultimo botao.
   const semPagamentoOnline = site.pagamentoOnline === false
+  // Pagar no local: liberado pelo estabelecimento, menos nos meses de pagamento antecipado (ex.: dezembro).
+  const pagarNoLocalAtivo = Boolean(site.pagarNoLocal?.ativo)
+  const mesAntecipado = Boolean(data) && (site.pagarNoLocal?.mesesAntecipado || []).includes(Number(data.slice(5, 7)))
+  const localPermitido = pagarNoLocalAtivo && Boolean(data) && !mesAntecipado
+  const [pagarLocal, setPagarLocal] = useState(false)
+  const vaiPagarNoLocal = localPermitido && (pagarLocal || semPagamentoOnline)
+  const semComoPagar = semPagamentoOnline && !vaiPagarNoLocal
   const AVISO_SEM_PAGAMENTO = 'O agendamento online está indisponível no momento. Fale com o estabelecimento para marcar seu horário.'
 
   const [enviando, setEnviando] = useState(false)
@@ -161,6 +168,7 @@ export default function BookingWizard({ slug, site }: { slug: string; site: Site
           produtos: itensExtras.map((i) => ({ produtoId: i.produto.id, quantidade: i.quantidade })),
           cliente: { nome: nome.trim(), telefone: digitosTelefone(telefone) },
           cupom: cupom.trim() || undefined,
+          pagamento: vaiPagarNoLocal ? 'LOCAL' : undefined,
         },
         { publico: true }
       )
@@ -198,7 +206,7 @@ export default function BookingWizard({ slug, site }: { slug: string; site: Site
         <div className="pb-success-icon">✓</div>
         <h2 className="pb-confirm-title">Agendamento registrado!</h2>
         <p className="muted center">
-          {dateLong(data)} às {hora} com {profissional?.nome}. Você vai receber a confirmação pelo WhatsApp.
+          {dateLong(data)} às {hora} com {profissional?.nome}. Você vai receber a confirmação pelo WhatsApp.{vaiPagarNoLocal ? ' O pagamento é feito no dia, na clínica.' : ''}
         </p>
       </div>
     )
@@ -207,7 +215,7 @@ export default function BookingWizard({ slug, site }: { slug: string; site: Site
   return (
     <>
       <div ref={topoRef} className="pb-wizard">
-        {semPagamentoOnline ? <PbAlert tipo="aviso">{AVISO_SEM_PAGAMENTO}</PbAlert> : null}
+        {semPagamentoOnline && !pagarNoLocalAtivo ? <PbAlert tipo="aviso">{AVISO_SEM_PAGAMENTO}</PbAlert> : null}
         <div className="pb-stepper-wrap">
           <div className="pb-stepper-caption">
             Passo {indice + 1} de {passos.length} · <strong>{ROTULOS[passo]}</strong>
@@ -452,12 +460,50 @@ export default function BookingWizard({ slug, site }: { slug: string; site: Site
               <p>{site.politica.texto}</p>
             </div>
 
-            <div className="pb-note">
-              <span aria-hidden>⏳</span>
-              <span>
-                Ao reservar, seu horário fica guardado por <strong>{site.reservaMinutos} minutos</strong> até a confirmação do pagamento (Pix ou cartão).
-              </span>
-            </div>
+            {localPermitido && !semPagamentoOnline ? (
+              <div className="pb-card stack-sm">
+                <div className="pb-card-title">Como você prefere pagar?</div>
+                <div className="pb-options">
+                  {[
+                    { local: false, titulo: 'Pagar agora', desc: 'Pix ou cartão, pelo site.' },
+                    { local: true, titulo: 'Pagar no dia, na clínica', desc: 'Seu horário já fica confirmado.' },
+                  ].map((o) => {
+                    const sel = pagarLocal === o.local
+                    return (
+                      <button key={o.titulo} type="button" className={`pb-option pb-option-center ${sel ? 'selected' : ''}`} onClick={() => setPagarLocal(o.local)} aria-pressed={sel}>
+                        <span className="pb-option-main">
+                          <span className="pb-option-title">{o.titulo}</span>
+                          <span className="pb-option-desc">{o.desc}</span>
+                        </span>
+                        <span className="pb-check pb-radio">{sel ? '✓' : ''}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {pagarNoLocalAtivo && mesAntecipado ? (
+              <PbAlert tipo="aviso">
+                {semPagamentoOnline
+                  ? 'Para este mês o horário só é confirmado com pagamento antecipado. Fale com o estabelecimento para marcar.'
+                  : 'Para este mês o horário só é confirmado com o pagamento antecipado.'}
+              </PbAlert>
+            ) : null}
+
+            {vaiPagarNoLocal ? (
+              <div className="pb-note">
+                <span aria-hidden>✓</span>
+                <span>Seu horário fica confirmado na hora. O pagamento é feito no dia do atendimento, na clínica.</span>
+              </div>
+            ) : (
+              <div className="pb-note">
+                <span aria-hidden>⏳</span>
+                <span>
+                  Ao reservar, seu horário fica guardado por <strong>{site.reservaMinutos} minutos</strong> até a confirmação do pagamento (Pix ou cartão).
+                </span>
+              </div>
+            )}
             <PbAlert tipo="erro">{erro}</PbAlert>
           </div>
         ) : null}
@@ -478,8 +524,8 @@ export default function BookingWizard({ slug, site }: { slug: string; site: Site
               <div className="pb-total-label">Escolha ao menos um serviço</div>
             )}
           </div>
-          <button type="button" className="btn btn-primary btn-lg pb-cta" disabled={!podeAvancar[passo] || enviando || (passo === 'resumo' && semPagamentoOnline)} onClick={avancar}>
-            {passo === 'resumo' ? (enviando ? 'Reservando...' : 'Reservar e pagar') : passo === 'extras' && !itensExtras.length ? 'Pular' : 'Continuar'}
+          <button type="button" className="btn btn-primary btn-lg pb-cta" disabled={!podeAvancar[passo] || enviando || (passo === 'resumo' && semComoPagar)} onClick={avancar}>
+            {passo === 'resumo' ? (enviando ? 'Reservando...' : vaiPagarNoLocal ? 'Confirmar agendamento' : 'Reservar e pagar') : passo === 'extras' && !itensExtras.length ? 'Pular' : 'Continuar'}
           </button>
         </div>
       </div>

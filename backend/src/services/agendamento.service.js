@@ -114,6 +114,20 @@ function parseInicio({ inicio, data, hora }, tz) {
   throw badRequest("Informe data e horario do agendamento.");
 }
 
+// Site e agente: "LOCAL" so quando o estabelecimento libera pagar no local e o mes do
+// atendimento nao esta entre os de pagamento antecipado (ex.: dezembro). O resto paga online.
+function aceitaPagarNoLocal(tenant, inicio) {
+  if (!tenant.pagarNoLocalAtivo) return false;
+  const { month } = zonedParts(inicio, tenant.timezone);
+  return !(tenant.mesesPagamentoAntecipado || []).includes(month);
+}
+
+function formaPagamentoCliente(tenant, inicio, pedida) {
+  if (pedida !== "LOCAL") return "ONLINE";
+  if (!aceitaPagarNoLocal(tenant, inicio)) throw badRequest("Para este mês o pagamento é antecipado: o horário só é confirmado com o pagamento online.");
+  return "LOCAL";
+}
+
 async function lockProfissional(tx, profissionalId) {
   await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1))", `agenda:${profissionalId}`);
 }
@@ -154,7 +168,8 @@ async function criar(input) {
   } = input;
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant) throw notFound("Estabelecimento nao encontrado.");
-  const formaPagamento = origem === "MANUAL" ? input.pagamento || "LOCAL" : "ONLINE";
+  const inicioPedido = parseInicio(input, tenant.timezone);
+  const formaPagamento = origem === "MANUAL" ? input.pagamento || "LOCAL" : formaPagamentoCliente(tenant, inicioPedido, input.pagamento);
   if (!["LINK", "PIX", "LOCAL", "ONLINE"].includes(formaPagamento)) throw badRequest("Forma de pagamento invalida.");
   if (origem !== "MANUAL" && encaixe) throw badRequest("Encaixe so pode ser feito pelo estabelecimento.");
 
@@ -163,7 +178,7 @@ async function criar(input) {
   const habilitados = disponibilidade.profissionaisHabilitados(servicos);
   if (!habilitados.includes(profissionalId)) throw badRequest("Este profissional nao realiza todos os servicos escolhidos.");
 
-  const inicio = parseInicio(input, tenant.timezone);
+  const inicio = inicioPedido;
   const horarios = disponibilidade.calcularHorarios(inicio, servicos);
 
   if (origem !== "MANUAL") {
@@ -626,6 +641,56 @@ async function excluir(tenantId, id) {
   return { excluido: true };
 }
 
+// ---------- ajuste pelo painel ----------
+
+/**
+ * Ajuste manual do agendamento: horario de termino (ex.: reservou 13h-15h e vai ate 14h) e
+ * valor cobrado (fez mais ou menos do que a tabela). O valor fica como ajusteValor para nao
+ * mexer nos precos dos servicos; o que falta pagar sai da diferenca para o que ja foi pago.
+ */
+async function ajustar(tenantId, id, { horaFim, valorTotal, encaixe = false } = {}) {
+  const ag = await obter(tenantId, id);
+  if (!["AGUARDANDO_PAGAMENTO", "CONFIRMADO", "EM_ATENDIMENTO"].includes(ag.status)) {
+    throw badRequest("Só dá para editar agendamento em aberto (não finalizado nem cancelado).");
+  }
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  const data = {};
+
+  if (horaFim !== undefined && horaFim !== null && horaFim !== "") {
+    if (!/^\d{2}:\d{2}$/.test(String(horaFim))) throw badRequest("Horário de término inválido.");
+    const fim = zonedToUtc(zonedParts(ag.inicio, tenant.timezone).date, String(horaFim), tenant.timezone);
+    if (fim <= ag.inicio) throw badRequest("O término precisa ser depois do início.");
+    const intervaloMs = ag.fimIntervalo.getTime() - ag.fim.getTime();
+    const fimIntervalo = new Date(fim.getTime() + intervaloMs);
+    if (fimIntervalo > ag.fimIntervalo && !encaixe) {
+      const choques = await sobreposicoes(prisma, { tenantId, profissionalId: ag.profissionalId, inicio: ag.inicio, fimIntervalo, excluirId: id });
+      if (choques.length) throw conflict("O novo término passa por cima de outro agendamento. Confirme o encaixe para continuar.", { requerEncaixe: true });
+    }
+    data.fim = fim;
+    data.fimIntervalo = fimIntervalo;
+  }
+
+  if (valorTotal !== undefined && valorTotal !== null && valorTotal !== "") {
+    const novo = toInt(valorTotal, NaN, { min: 0 });
+    if (!Number.isFinite(novo)) throw badRequest("Valor inválido.");
+    if (ag.pagamentos.some((p) => p.status === "PENDENTE" && p.modo === "ONLINE")) {
+      throw badRequest("Este agendamento tem uma cobrança online em aberto. Espere o pagamento (ou cancele a cobrança) antes de mudar o valor.");
+    }
+    const pago = ag.pagamentos
+      .filter((p) => ["APROVADO", "REEMBOLSADO_PARCIAL", "REEMBOLSADO"].includes(p.status))
+      .reduce((acc, p) => acc + p.valorBruto, 0);
+    if (novo < pago) throw badRequest(`O valor não pode ficar abaixo do que já foi pago (${brl(pago)}). Para devolver dinheiro, use Cancelar com reembolso.`);
+    data.ajusteValor = novo - (ag.valorServicos + ag.valorProdutos - ag.desconto);
+    data.valorTotal = novo;
+  }
+
+  if (!Object.keys(data).length) throw badRequest("Nada para alterar.");
+  await prisma.agendamento.update({ where: { id }, data });
+  log("agenda", "ajustado", { tenantId, id, de: { fim: ag.fim, valorTotal: ag.valorTotal }, para: data });
+  notificarAgenda(tenantId, id, "ajustado");
+  return obterSerializado(tenantId, id);
+}
+
 // ---------- reagendamento ----------
 
 /**
@@ -781,4 +846,6 @@ module.exports = {
   reenviarLink,
   registrarPagamentoNoLocal,
   valorEmAberto,
+  aceitaPagarNoLocal,
+  ajustar,
 };
