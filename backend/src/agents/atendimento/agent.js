@@ -61,6 +61,36 @@ function resumoDiasFechados(diasFechados) {
   return faixas.map((f) => (f.ini === f.fim ? ddmm(f.ini) : `${ddmm(f.ini)} a ${ddmm(f.fim)}`)).join("; ");
 }
 
+// Datas que a cliente escreveu (dd/mm ou dd/mm/aaaa), com o dia da semana calculado aqui. O calendario
+// do prompt so cobre 14 dias: com "22/12" a IA leu a linha "domingo 22/11" e disse que 22/12 era
+// domingo (10/11/2026). Data ja passada no ano vira o ano seguinte.
+function datasCitadas(texto, hoje) {
+  const out = new Set();
+  for (const m of String(texto || "").matchAll(/(?<!\d)(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?(?!\d)/g)) {
+    const dia = Number(m[1]);
+    const mes = Number(m[2]);
+    if (dia < 1 || dia > 31 || mes < 1 || mes > 12) continue;
+    let ano = m[3] ? Number(m[3].length === 2 ? `20${m[3]}` : m[3]) : Number(hoje.slice(0, 4));
+    let iso = `${ano}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+    if (!m[3] && iso < hoje) iso = `${ano + 1}${iso.slice(4)}`;
+    if (!Number.isNaN(new Date(`${iso}T12:00:00Z`).getTime())) out.add(iso);
+  }
+  return [...out].sort();
+}
+
+function linhasDatasCitadas(datas, { funcionamento = [], diasFechados = [] } = {}) {
+  if (!datas.length) return [];
+  return [
+    "Datas que a cliente citou (dia da semana ja calculado; use estas, nao deduza pelo calendario):",
+    ...datas.map((iso) => {
+      const d = new Date(`${iso}T12:00:00Z`);
+      const rotina = funcionamento.find((h) => h.diaSemana === d.getUTCDay());
+      const fechado = diasFechados.includes(iso) || (rotina && !rotina.aberto) ? " FECHADO, nao atende" : "";
+      return `- ${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)} = ${WEEKDAY_NAMES[d.getUTCDay()]} (${iso})${fechado}`;
+    }),
+  ];
+}
+
 function blocoFuncionamento(funcionamento, diasFechados = []) {
   if (!funcionamento.length) return [];
   return [
@@ -120,7 +150,7 @@ function apresentacaoConfigurada(config, linkSite, siteLiberado, { semPedidoDeNo
   return texto.replace(/\{link\}/gi, siteLiberado ? linkSite : "").replace(/\s+([.!?,])/g, "$1").trim();
 }
 
-function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true, linkJaEnviado = false, mesCitado = null, falasDaEquipe = [], funcionamento = [], diasFechados = [], inicioDeAtendimento = false }) {
+function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true, linkJaEnviado = false, mesCitado = null, falasDaEquipe = [], funcionamento = [], diasFechados = [], inicioDeAtendimento = false, textoRecenteDaCliente = "" }) {
   const hoje = todayStr(tenant.timezone);
   const agora = zonedParts(new Date(), tenant.timezone);
   const linkSite = `${env.publicAppUrl}/s/${tenant.slug}`;
@@ -165,6 +195,7 @@ function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true
     `Hoje e ${WEEKDAY_NAMES[agora.weekday]}, ${formatDateBr(new Date(), tenant.timezone)} (${hoje}), agora sao ${String(agora.hour).padStart(2, "0")}:${String(agora.minute).padStart(2, "0")} (use "${saudacaoDoHorario(agora.hour)}" ao cumprimentar). Fuso: ${tenant.timezone}.`,
     "Calendario dos proximos dias (use esta lista para converter dia da semana em data; nunca calcule por conta propria):",
     proximosDias(hoje, 14, { funcionamento, diasFechados }),
+    ...linhasDatasCitadas(datasCitadas(textoRecenteDaCliente, hoje), { funcionamento, diasFechados }),
     ...blocoFuncionamento(funcionamento, diasFechados),
     // "no dia 23" depois de a conversa toda ser sobre dezembro virava 23/11 (Studio Bella, 04/11/2026)
     mesCitado
@@ -215,6 +246,16 @@ function mensagemAgendamentoConcluido(ag) {
   const quando = `${dia}, ${ag.data.slice(8, 10)}/${ag.data.slice(5, 7)}, às ${ag.hora}`;
   const pagamento = ag.situacaoPagamento === "PAGO_ONLINE" ? "Pagamento já confirmado." : ag.modoPagamento === "LOCAL" ? "Pagamento no dia, na clínica." : "";
   return `Seu agendamento foi concluído com sucesso! ✅ ${ag.servicos.map((s) => s.nome).join(" + ")} com ${ag.profissional?.nome || "a equipe"}, ${quando}. ${pagamento}`.trim();
+}
+
+// Horario que a cliente escreveu ("as 15h30", "15:30", "as 15h"), so quando ha um unico na mensagem.
+// Datas como 22/12 nao casam (barra). Usado quando a IA nao passa hora_desejada.
+function horaPedidaNaMensagem(texto) {
+  const achados = [...String(texto || "").matchAll(/(?<![\d/])([01]?\d|2[0-3])\s*(?:h|:)\s*([0-5]\d)?(?![\d/])/gi)].map(
+    (m) => `${m[1].padStart(2, "0")}:${m[2] || "00"}`
+  );
+  const unicos = [...new Set(achados)];
+  return unicos.length === 1 ? unicos[0] : undefined;
 }
 
 function buildTools(ctx) {
@@ -374,7 +415,8 @@ function buildTools(ctx) {
         if (!remarcando && !(entrada.servico_ids || []).length) return { ok: false, error: "Informe servico_ids (ou agendamento_id para remarcar)." };
         const servico_ids = remarcando ? remarcando.servicos.map((s) => s.servicoId) : await idsDeServicos(entrada.servico_ids);
         const profissional_id = remarcando && !entrada.profissional_id ? remarcando.profissionalId : await idDeProfissional(entrada.profissional_id);
-        const { data, periodo, hora_desejada } = entrada;
+        const { data, periodo } = entrada;
+        const hora_desejada = entrada.hora_desejada || horaPedidaNaMensagem(ctx.textoDaCliente);
         // Horarios mais proximos do pedido primeiro; a lista volta curta para nao virar "textao".
         const minutos = (h) => Number(String(h).slice(0, 2)) * 60 + Number(String(h).slice(3, 5));
         const desejo = /^\d{2}:\d{2}$/.test(String(hora_desejada || "")) ? minutos(hora_desejada) : null;
@@ -481,7 +523,7 @@ function buildTools(ctx) {
               ok: true,
               separados: true,
               orientacao:
-                "Nenhuma profissional faz todos esses servicos no mesmo atendimento: eles sao agendados separados, cada um com quem faz (a clinica NAO esta fechada). Ofereca horarios do mesmo dia em sequencia (um logo depois do outro) e, ao confirmar, crie um agendamento para cada servico com criar_agendamento.",
+                "Nenhuma profissional faz todos esses servicos no mesmo atendimento: eles sao agendados separados, cada um com quem faz (a clinica NAO esta fechada). Responda SERVICO POR SERVICO: para cada um, diga se o horario pedido esta livre (horaDesejadaLivre) e com quem; quando nao estiver, ofereca os mais proximos daquele servico. Nunca diga que o horario 'nao tem' para todos se algum servico tem. Ex.: \"Pe e mao as 15:30 com a Ana Caroline tem sim. Sobrancelha as 15:30 nao tem; com a Barbara tem 14:30 ou 16:00.\" Ao confirmar, crie um agendamento para cada servico com criar_agendamento.",
               porServico,
             };
           }

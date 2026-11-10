@@ -391,7 +391,24 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
       // Equipe ja falou valores nesta conversa: a lista de servicos vai sem preco para a IA nao
       // repetir o da lista por cima do que a doutora passou (so a regra no prompt nao segurou).
       const equipePassouValores = falas.some((t) => /\$|\breais\b|\br\s?\d/i.test(t));
-      const ctx = { tenant, config, telefone: conversa.telefone, cliente: null, escalonamento: null, pagamentoDisponivel, equipePassouValores };
+      // Mensagens da cliente ainda sem resposta: consultar_horarios tira dali o horario pedido quando
+      // a IA esquece de passar hora_desejada (caso Ana Luiza, 10/11/2026: "dia 22 as 15h30").
+      const ultimaFala = await prisma.mensagem.findFirst({ where: { conversaId, autor: { not: "CLIENTE" } }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+      const pendentesDaCliente = await prisma.mensagem.findMany({
+        where: { conversaId, autor: "CLIENTE", ...(ultimaFala ? { createdAt: { gt: ultimaFala.createdAt } } : {}) },
+        orderBy: { createdAt: "asc" },
+        select: { texto: true },
+      });
+      const ctx = {
+        tenant,
+        config,
+        telefone: conversa.telefone,
+        cliente: null,
+        escalonamento: null,
+        pagamentoDisponivel,
+        equipePassouValores,
+        textoDaCliente: pendentesDaCliente.map((m) => m.texto).join("\n"),
+      };
       ctx.cliente = conversa.clienteId ? await prisma.cliente.findUnique({ where: { id: conversa.clienteId } }) : null;
       const systemPrompt = atendimentoAgent.buildSystemPrompt({
         tenant,
@@ -402,6 +419,17 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
         mesCitado: await mesCitadoNaConversa(conversaId),
         falasDaEquipe: falas,
         inicioDeAtendimento: await inicioDeAtendimento(conversaId),
+        // datas que a cliente escreveu nas ultimas 12h, com o dia da semana calculado (o calendario cobre so 14 dias)
+        textoRecenteDaCliente: (
+          await prisma.mensagem.findMany({
+            where: { conversaId, autor: "CLIENTE", createdAt: { gt: new Date(Date.now() - INTERVALO_NOVO_ATENDIMENTO_MS) } },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+            select: { texto: true },
+          })
+        )
+          .map((m) => m.texto)
+          .join("\n"),
         funcionamento: await prisma.horarioFuncionamento.findMany({ where: { tenantId: tenant.id } }),
         diasFechados: (await prisma.diaFechado.findMany({ where: { tenantId: tenant.id, data: { gte: todayStr(tenant.timezone) } }, select: { data: true } })).map((d) => d.data),
       });
