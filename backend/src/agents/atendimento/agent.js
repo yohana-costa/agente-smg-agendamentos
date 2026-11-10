@@ -48,11 +48,25 @@ function resumoFuncionamento(funcionamento) {
   return `Abre ${abertos.join("; ")}.${fechados.length ? ` Fechado: ${fechados.join(" e ")}.` : ""}`;
 }
 
-function blocoFuncionamento(funcionamento) {
+// "25/12; 30/12 a 11/01": datas fechadas fora da rotina, juntando dias seguidos. O calendario do
+// prompt so cobre 14 dias e a IA inventou "atendemos ate 23/12" (10/11/2026).
+function resumoDiasFechados(diasFechados) {
+  const ddmm = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+  const faixas = [];
+  for (const iso of [...diasFechados].sort()) {
+    const ultima = faixas[faixas.length - 1];
+    if (ultima && new Date(`${iso}T12:00:00Z`) - new Date(`${ultima.fim}T12:00:00Z`) === 86400000) ultima.fim = iso;
+    else faixas.push({ ini: iso, fim: iso });
+  }
+  return faixas.map((f) => (f.ini === f.fim ? ddmm(f.ini) : `${ddmm(f.ini)} a ${ddmm(f.fim)}`)).join("; ");
+}
+
+function blocoFuncionamento(funcionamento, diasFechados = []) {
   if (!funcionamento.length) return [];
   return [
     "## Dias e horarios de funcionamento",
     resumoFuncionamento(funcionamento),
+    diasFechados.length ? `Datas fechadas fora da rotina (feriados, recesso): ${resumoDiasFechados(diasFechados)}. Perguntas sobre feriados e fim de ano: responda so por esta lista e pelas Informacoes do negocio; nunca invente data.` : "",
     "Pergunta \"atende tal dia?\" ou \"abre tal dia?\": responda por este resumo e pelo calendario acima. Dia FECHADO: diga que a clinica nao abre nesse dia e ofereca o proximo dia aberto. Nunca diga que atende num dia fechado nem troque \"fechado\" por \"nao tem horario\".",
     "Pergunta \"quais dias voces abrem?\": responda numa mensagem so com TODOS os dias abertos do resumo, sem listar dia por dia.",
     "So diga que a clinica esta fechada num dia quando o calendario marcar FECHADO ou `consultar_horarios` devolver `fechado: true`. Dia aberto sem horario livre para o pedido NAO e fechado: diga que nao tem horario para aquilo e ofereca outro.",
@@ -151,7 +165,7 @@ function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true
     `Hoje e ${WEEKDAY_NAMES[agora.weekday]}, ${formatDateBr(new Date(), tenant.timezone)} (${hoje}), agora sao ${String(agora.hour).padStart(2, "0")}:${String(agora.minute).padStart(2, "0")} (use "${saudacaoDoHorario(agora.hour)}" ao cumprimentar). Fuso: ${tenant.timezone}.`,
     "Calendario dos proximos dias (use esta lista para converter dia da semana em data; nunca calcule por conta propria):",
     proximosDias(hoje, 14, { funcionamento, diasFechados }),
-    ...blocoFuncionamento(funcionamento),
+    ...blocoFuncionamento(funcionamento, diasFechados),
     // "no dia 23" depois de a conversa toda ser sobre dezembro virava 23/11 (Studio Bella, 04/11/2026)
     mesCitado
       ? `Mes que a cliente citou por ultimo nesta conversa: ${mesCitado}. Dia sem mes ("dia 23") e desse mes, a menos que ela diga outro.`
@@ -232,6 +246,38 @@ function buildTools(ctx) {
     const alvo = semAcento(v);
     const achado = profs.find((x) => semAcento(x.nome) === alvo) || profs.find((x) => semAcento(x.nome).startsWith(alvo));
     return achado ? achado.id : v;
+  }
+
+  // Agendamento da propria cliente que ocupa este horario (comeca nele ou esta em andamento nele).
+  async function agendamentoDaClienteNoHorario(clienteId, data, hora) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(data || "")) || !/^\d{2}:\d{2}$/.test(String(hora || ""))) return null;
+    const momento = zonedToUtc(data, hora, tenant.timezone);
+    const ag = await prisma.agendamento.findFirst({
+      where: { tenantId, clienteId, status: { in: ["CONFIRMADO", "AGUARDANDO_PAGAMENTO"] }, inicio: { lte: momento }, fimIntervalo: { gt: momento } },
+      select: { id: true },
+    });
+    return ag ? agendamentoService.obterSerializado(tenantId, ag.id) : null;
+  }
+
+  // Horarios da cliente no dia consultado: sem isso a IA dizia que o horario dela "nao estava
+  // disponivel" (era ocupado pelo proprio agendamento) e a cliente achou que nao estava marcada.
+  async function agendamentosDaClienteNoDia(data) {
+    const cliente = await clienteAtual();
+    if (!cliente || !/^\d{4}-\d{2}-\d{2}$/.test(String(data || ""))) return [];
+    const ags = await prisma.agendamento.findMany({
+      where: {
+        tenantId,
+        clienteId: cliente.id,
+        status: { in: ["CONFIRMADO", "AGUARDANDO_PAGAMENTO"] },
+        inicio: { gte: zonedToUtc(data, "00:00", tenant.timezone), lte: zonedToUtc(data, "23:59", tenant.timezone) },
+      },
+      include: agendamentoService.INCLUDE_COMPLETO,
+      orderBy: { inicio: "asc" },
+    });
+    return ags.map((a) => {
+      const s = agendamentoService.serializar(a, tenant);
+      return { hora: s.hora, horaFim: s.horaFim, servicos: s.servicos.map((x) => x.nome), profissional: s.profissional?.nome, status: s.status };
+    });
   }
 
   async function agendamentoDoCliente(id) {
@@ -351,6 +397,14 @@ function buildTools(ctx) {
         const consultar = async (ids, profId) => {
           if (data) {
             const r = await disponibilidade.listarHorarios({ tenantId, servicoIds: ids, profissionalId: profId, data, excluirAgendamentoId: remarcando?.id });
+            const daCliente = (await agendamentosDaClienteNoDia(data)).filter((a) => !remarcando || a.hora !== remarcando.hora);
+            const avisoDaCliente = daCliente.length
+              ? {
+                  agendamentosDaClienteNesteDia: daCliente,
+                  avisoCliente:
+                    "A cliente JA TEM horario marcado neste dia (acima). Horarios ocupados por ele nao aparecem como livres porque ela ja esta marcada ali: diga isso a ela e nunca que o horario 'acabou de ser reservado' ou 'nao esta disponivel'.",
+                }
+              : {};
             // Clinica fechada no dia: o sistema avisa (so "sem horario" fez a IA dizer que atendia na segunda)
             const fechado = r.profissionais.length > 0 && r.profissionais.every((p) => ["FECHADO_ROTINA", "FECHADO_FORA_ROTINA"].includes(p.motivo));
             if (fechado) {
@@ -366,6 +420,7 @@ function buildTools(ctx) {
               ok: true,
               data,
               ...pagamentoDoDia(data),
+              ...avisoDaCliente,
               diaSemana: WEEKDAY_NAMES[new Date(`${data}T12:00:00Z`).getUTCDay()],
               duracaoTotalMin: r.duracao.ocupacaoTotal,
               periodo: periodo || null,
@@ -479,6 +534,17 @@ function buildTools(ctx) {
               observacao: "A reserva que estava aguardando pagamento virou pagamento no local e ja esta confirmada. O link anterior nao vale mais. Envie `mensagemFinal` exatamente como esta.",
             };
           }
+        }
+        // A cliente ja esta marcada nesse horario: o "sim" da Josefa (07/11) depois da confirmacao
+        // fez a IA tentar marcar de novo, bater no proprio horario e dizer "acabou de ser reservado".
+        const proprio = cliente ? await agendamentoDaClienteNoHorario(cliente.id, data, hora) : null;
+        if (proprio) {
+          return {
+            ok: true,
+            jaAgendado: true,
+            agendamento: resumoAgendamento(proprio),
+            orientacao: "A cliente JA ESTA AGENDADA neste horario (este agendamento e dela). Nao crie outro e nunca diga que o horario foi reservado por outra pessoa: confirme que o horario dela esta marcado (servico, dia e hora).",
+          };
         }
         const ag = await agendamentoService.criar({
           tenantId,
