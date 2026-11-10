@@ -434,7 +434,27 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
         diasFechados: (await prisma.diaFechado.findMany({ where: { tenantId: tenant.id, data: { gte: todayStr(tenant.timezone) } }, select: { data: true } })).map((d) => d.data),
       });
       const history = await historico(conversaId);
-      const avisoEquipe = (await respondendoEquipe(conversaId)) ? [{ role: "system", content: AVISO_RESPONDENDO_EQUIPE }] : [];
+      // Com horario ja marcado, o "sim" dela costuma ser sobre ele (Maria, 10/11/2026: equipe perguntou
+      // "sexta dia 13?", ela disse "sim" e ja estava marcada): a IA diz que ela ja esta marcada.
+      let avisoEquipe = [];
+      if (await respondendoEquipe(conversaId)) {
+        const clienteId = conversa.clienteId || ctx.cliente?.id;
+        const marcados = clienteId
+          ? await prisma.agendamento.findMany({
+              where: { tenantId: tenant.id, clienteId, status: { in: ["CONFIRMADO", "AGUARDANDO_PAGAMENTO"] }, inicio: { gte: new Date() } },
+              include: agendamentoService.INCLUDE_COMPLETO,
+              orderBy: { inicio: "asc" },
+              take: 3,
+            })
+          : [];
+        const lista = marcados
+          .map((a) => agendamentoService.serializar(a, tenant))
+          .map((a) => `${a.data.slice(8, 10)}/${a.data.slice(5, 7)} as ${a.hora}, ${a.servicos.map((s) => s.nome).join(" + ")} com ${a.profissional?.nome}`);
+        const extra = lista.length
+          ? ` Ela JA TEM horario marcado: ${lista.join("; ")}. Se a mensagem dela e sobre isso (ex.: "sim", o dia), diga em uma frase que ela ja esta marcada (dia, hora e servico), sem oferecer horarios.`
+          : "";
+        avisoEquipe = [{ role: "system", content: AVISO_RESPONDENDO_EQUIPE + extra }];
+      }
       if (avisoEquipe.length) log("agentes", "cliente_respondendo_equipe", { conversaId });
       const gerar = (extra = []) =>
         gerarResposta({
