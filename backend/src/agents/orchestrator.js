@@ -27,11 +27,17 @@ function pausaAtiva(conversa) {
   return conversa.status !== "ATIVO" && conversa.pausadoAte && new Date(conversa.pausadoAte) > new Date();
 }
 
-async function pausar(conversa, { escalonar = false, motivo = null } = {}) {
+// Equipe conversando com a cliente: a IA fica de fora pelo menos 30 min a partir da ultima mensagem
+// da equipe. Com o tempo de retorno da Studio Bella (5 min) a IA voltou no meio da conversa da Dra
+// com a Duda e respondeu de novo perguntas que a Dra ja tinha tratado (10/11/2026).
+const PAUSA_MINIMA_HUMANO_MIN = 30;
+
+async function pausar(conversa, { escalonar = false, motivo = null, humano = false } = {}) {
   const config = await getAgenteConfig(conversa.tenantId);
+  const minutos = config.tempoRetornoMin || 15;
   const data = {
     status: escalonar ? "ESCALONADO" : "PAUSADO",
-    pausadoAte: addMinutes(new Date(), config.tempoRetornoMin || 15),
+    pausadoAte: addMinutes(new Date(), humano ? Math.max(minutos, PAUSA_MINIMA_HUMANO_MIN) : minutos),
   };
   if (escalonar) Object.assign(data, { escalonamentoPendente: true, motivoEscalonamento: motivo, escalonadoEm: new Date() });
   const atualizada = await prisma.conversa.update({ where: { id: conversa.id }, data });
@@ -75,7 +81,7 @@ async function enviarMensagemHumano(conversaId, texto, usuarioNome) {
   const conversa = await prisma.conversa.findUnique({ where: { id: conversaId } });
   if (!conversa) throw Object.assign(new Error("Conversa nao encontrada."), { statusCode: 404 });
   const r = await enviarTexto(conversa.tenantId, conversa.telefone, texto, { autor: "HUMANO", canal: conversa.canal });
-  await pausar(conversa);
+  await pausar(conversa, { humano: true });
   await prisma.conversa.update({ where: { id: conversaId }, data: { escalonamentoPendente: false } });
   log("agentes", "mensagem_humano", { conversaId, usuarioNome, enviado: r.enviado });
   return r;
@@ -296,6 +302,23 @@ const AFIRMA_AGENDOU = /\b(agendei|reservei|marquei|remarquei|j[aá] (agendei|ma
 const AVISO_AFIRMOU_SEM_AGENDAR =
   "ATENCAO (interno): sua resposta dizia que voce agendou/reservou/marcou, mas nenhuma ferramenta de agendamento foi executada com sucesso nesta resposta: NADA foi registrado na agenda. Se ja tem servico, profissional, data, hora e nome, chame `criar_agendamento` agora. Se falta algo, pergunte. Se o agendamento ja existia antes (confira com `meus_agendamentos`), diga isso sem criar outro. Nunca diga que agendou sem a ferramenta confirmar (ok: true).";
 
+// A cliente esta respondendo a equipe (a ultima fala antes das mensagens dela e de um humano, nas
+// ultimas 3h). So a regra no prompt nao segurou: no caso Duda (10/11/2026) a IA pegou "Ana Luisa
+// Torres +55..." (resposta a Dra) como nome da cliente e voltou a oferecer horarios ja tratados.
+const AVISO_RESPONDENDO_EQUIPE =
+  "ATENCAO (interno): a ultima mensagem antes da cliente foi da EQUIPE ([Atendente humano]). A cliente esta respondendo a equipe, que esta cuidando deste atendimento. NAO responda perguntas antigas, NAO ofereca horarios, NAO cadastre nome e NAO repita informacoes. Responda so com uma frase curta e simpatica dizendo que a equipe ja continua com ela por aqui. Excecao: pergunta nova e simples dela (endereco, horario de funcionamento) voce responde em uma frase.";
+
+async function respondendoEquipe(conversaId) {
+  const ultimas = await prisma.mensagem.findMany({
+    where: { conversaId, autor: { not: "SISTEMA" } },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    select: { autor: true, createdAt: true },
+  });
+  const anterior = ultimas.find((m) => m.autor !== "CLIENTE");
+  return anterior?.autor === "HUMANO" && Date.now() - new Date(anterior.createdAt).getTime() < 3 * 60 * 60 * 1000;
+}
+
 function afirmouSemAgendar(r) {
   if (!AFIRMA_AGENDOU.test(String(r?.text || ""))) return false;
   return !(r.usedTools || []).some((t) => t.ok && ["criar_agendamento", "reagendar_agendamento"].includes(t.name));
@@ -354,10 +377,12 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
         diasFechados: (await prisma.diaFechado.findMany({ where: { tenantId: tenant.id, data: { gte: todayStr(tenant.timezone) } }, select: { data: true } })).map((d) => d.data),
       });
       const history = await historico(conversaId);
+      const avisoEquipe = (await respondendoEquipe(conversaId)) ? [{ role: "system", content: AVISO_RESPONDENDO_EQUIPE }] : [];
+      if (avisoEquipe.length) log("agentes", "cliente_respondendo_equipe", { conversaId });
       const gerar = (extra = []) =>
         gerarResposta({
           systemPrompt,
-          history: [...history, ...extra],
+          history: [...history, ...avisoEquipe, ...extra],
           tools: atendimentoAgent.buildTools(ctx),
           shouldStop: () => Boolean(ctx.escalonamento),
           apiKey: config.openaiApiKey,
@@ -473,6 +498,13 @@ async function ehMensagemAutomaticaDoCelular(conversa, texto) {
     select: { id: true },
   });
   if (jaConhecida) return true;
+  // Equipe ja conversando nesta conversa: e a Dra digitando, nao saudacao/ausencia do WhatsApp
+  // Business. "Oi Duda O sistema errou..." saiu 1s depois da cliente e virou automatica (10/11/2026).
+  const equipeRecente = await prisma.mensagem.findFirst({
+    where: { conversaId: conversa.id, autor: "HUMANO", createdAt: { gt: new Date(Date.now() - 2 * 60 * 60 * 1000) } },
+    select: { id: true },
+  });
+  if (equipeRecente) return false;
 
   const segundosDesdeACliente = async () => {
     const ultima = await prisma.mensagem.findFirst({ where: { conversaId: conversa.id, autor: "CLIENTE" }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
@@ -525,7 +557,7 @@ async function processarEvento(tenant, config, evento) {
     }
     // humano respondeu direto pelo WhatsApp: registra e pausa o agente nesta conversa
     await registrarMensagem(conversa, { autor: "HUMANO", texto: evento.text, externalId: evento.messageId || null });
-    await pausar(conversa);
+    await pausar(conversa, { humano: true });
     await prisma.conversa.update({ where: { id: conversa.id }, data: { escalonamentoPendente: false } });
     return { pausado: true };
   }

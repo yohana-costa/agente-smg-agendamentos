@@ -9,8 +9,10 @@ async function encontrarOuCriarCliente(tenantId, { telefone, nome }, tx) {
   const nomeLimpo = textOrEmpty(nome);
   const existente = await db.cliente.findUnique({ where: { tenantId_telefone: { tenantId, telefone: phone } } });
   if (existente) {
-    // telefone existente com nome diferente: atualiza o nome
-    if (nomeLimpo && nomeLimpo !== existente.nome) {
+    // Telefone existente: o nome so e preenchido se o cadastro estiver sem nome. Trocar o nome de
+    // quem ja existe renomeou a Duda Torres para "Ana Luisa Torres" (contato de amiga mandado no
+    // WhatsApp, 10/11/2026) e os horarios dela sumiram da agenda com o nome dela.
+    if (nomeLimpo && !textOrEmpty(existente.nome)) {
       return db.cliente.update({ where: { id: existente.id }, data: { nome: nomeLimpo } });
     }
     return existente;

@@ -55,6 +55,7 @@ function blocoFuncionamento(funcionamento) {
     resumoFuncionamento(funcionamento),
     "Pergunta \"atende tal dia?\" ou \"abre tal dia?\": responda por este resumo e pelo calendario acima. Dia FECHADO: diga que a clinica nao abre nesse dia e ofereca o proximo dia aberto. Nunca diga que atende num dia fechado nem troque \"fechado\" por \"nao tem horario\".",
     "Pergunta \"quais dias voces abrem?\": responda numa mensagem so com TODOS os dias abertos do resumo, sem listar dia por dia.",
+    "So diga que a clinica esta fechada num dia quando o calendario marcar FECHADO ou `consultar_horarios` devolver `fechado: true`. Dia aberto sem horario livre para o pedido NAO e fechado: diga que nao tem horario para aquilo e ofereca outro.",
     "",
   ];
 }
@@ -217,10 +218,14 @@ function buildTools(ctx) {
     },
     {
       name: "registrar_nome_cliente",
-      description: "Cadastra ou atualiza o nome do cliente deste telefone.",
+      description:
+        "Cadastra o nome do cliente deste telefone. So com o PROPRIO nome que a cliente disse; nunca com nome de outra pessoa (amiga, mae, contato encaminhado com telefone). Cadastro que ja tem nome nao e trocado.",
       schema: z.object({ nome: z.string().min(2).describe("Nome completo informado pelo cliente") }),
       handler: async ({ nome }) => {
         ctx.cliente = await encontrarOuCriarCliente(tenantId, { telefone, nome });
+        if (ctx.cliente.nome !== String(nome).trim()) {
+          return { ok: true, nome: ctx.cliente.nome, aviso: `Este telefone ja e cadastro de ${ctx.cliente.nome}; o nome nao foi trocado. Se for outra pessoa, ela agenda pelo proprio numero ou a equipe cadastra.` };
+        }
         return { ok: true, nome: ctx.cliente.nome };
       },
     },
@@ -268,7 +273,7 @@ function buildTools(ctx) {
     {
       name: "consultar_horarios",
       description:
-        "Consulta horarios livres para um ou mais servicos (no mesmo atendimento). Sem data, retorna os proximos dias com horario. Considera jornada, folgas, bloqueios, Google Calendar, duracao total e intervalos.",
+        "Consulta horarios livres para um ou mais servicos (no mesmo atendimento). Sem data, retorna os proximos dias com horario. Considera jornada, folgas, bloqueios, Google Calendar, duracao total e intervalos. Se nenhuma profissional faz todos os servicos juntos, devolve `separados` com os horarios de cada servico.",
       schema: z.object({
         servico_ids: z.array(z.string()).min(1).describe("Ids (ou nomes exatos) dos servicos escolhidos, na ordem"),
         profissional_id: z.string().optional().describe("Id do profissional, se o cliente escolheu"),
@@ -299,57 +304,85 @@ function buildTools(ctx) {
               ? { pagamento: "SOMENTE online e antecipado neste mes (nao existe pagar no local; explique isso antes de agendar)" }
               : { pagamento: "neste mes nao da para agendar por aqui: use consultar_equipe com tipo agendamento, sem falar de sistema" };
         };
-        if (data) {
-          const r = await disponibilidade.listarHorarios({ tenantId, servicoIds: servico_ids, profissionalId: profissional_id, data });
-          // Clinica fechada no dia: o sistema avisa (so "sem horario" fez a IA dizer que atendia na segunda)
-          const fechado = r.profissionais.length > 0 && r.profissionais.every((p) => ["FECHADO_ROTINA", "FECHADO_FORA_ROTINA"].includes(p.motivo));
-          if (fechado) {
+        const consultar = async (ids, profId) => {
+          if (data) {
+            const r = await disponibilidade.listarHorarios({ tenantId, servicoIds: ids, profissionalId: profId, data });
+            // Clinica fechada no dia: o sistema avisa (so "sem horario" fez a IA dizer que atendia na segunda)
+            const fechado = r.profissionais.length > 0 && r.profissionais.every((p) => ["FECHADO_ROTINA", "FECHADO_FORA_ROTINA"].includes(p.motivo));
+            if (fechado) {
+              return {
+                ok: true,
+                data,
+                diaSemana: WEEKDAY_NAMES[new Date(`${data}T12:00:00Z`).getUTCDay()],
+                fechado: true,
+                aviso: "A clinica NAO abre neste dia. Diga isso a cliente (nao diga so que nao tem horario) e ofereca o proximo dia aberto, consultando sem data ou com a data dele.",
+              };
+            }
             return {
               ok: true,
               data,
+              ...pagamentoDoDia(data),
               diaSemana: WEEKDAY_NAMES[new Date(`${data}T12:00:00Z`).getUTCDay()],
-              fechado: true,
-              aviso: "A clinica NAO abre neste dia. Diga isso a cliente (nao diga so que nao tem horario) e ofereca o proximo dia aberto, consultando sem data ou com a data dele.",
+              duracaoTotalMin: r.duracao.ocupacaoTotal,
+              periodo: periodo || null,
+              ...(desejo !== null ? { horaDesejadaLivre: r.profissionais.some((p) => p.horarios.includes(hora_desejada)) } : {}),
+              profissionais: r.profissionais.map((p) => {
+                const livres = ordenar(p.horarios.filter(noPeriodo));
+                return {
+                  id: p.profissionalId,
+                  nome: p.nome,
+                  horarios: livres.slice(0, 3),
+                  outrosHorariosLivres: Math.max(0, livres.length - 3),
+                  ...(p.motivo === "FOLGA_SEMANAL" ? { observacao: `${p.nome} nao atende neste dia da semana` } : {}),
+                };
+              }),
+              ...(r.profissionais.every((p) => !p.horarios.some(noPeriodo))
+                ? { semHorario: "A clinica ABRE neste dia; so nao tem horario livre para este pedido. Nao diga que esta fechada." }
+                : {}),
+              orientacao:
+                "Ofereca no maximo 3 opcoes, sem lista longa. A lista e um resumo: antes de dizer que um horario pedido nao esta livre, consulte de novo com hora_desejada.",
             };
           }
+          const dias = await disponibilidade.proximosDiasDisponiveis({ tenantId, servicoIds: ids, profissionalId: profId, dias: 21, maxResultados: periodo ? 10 : 5 });
           return {
             ok: true,
-            data,
-            ...pagamentoDoDia(data),
-            diaSemana: WEEKDAY_NAMES[new Date(`${data}T12:00:00Z`).getUTCDay()],
-            duracaoTotalMin: r.duracao.ocupacaoTotal,
             periodo: periodo || null,
-            ...(desejo !== null ? { horaDesejadaLivre: r.profissionais.some((p) => p.horarios.includes(hora_desejada)) } : {}),
-            profissionais: r.profissionais.map((p) => {
-              const livres = ordenar(p.horarios.filter(noPeriodo));
-              return {
-                id: p.profissionalId,
-                nome: p.nome,
-                horarios: livres.slice(0, 3),
-                outrosHorariosLivres: Math.max(0, livres.length - 3),
-                ...(p.motivo === "FOLGA_SEMANAL" ? { observacao: `${p.nome} nao atende neste dia da semana` } : {}),
-              };
-            }),
-            orientacao:
-              "Ofereca no maximo 3 opcoes, sem lista longa. A lista e um resumo: antes de dizer que um horario pedido nao esta livre, consulte de novo com hora_desejada.",
+            dias: dias
+              .map((d) => ({
+                data: d.data,
+                ...pagamentoDoDia(d.data),
+                diaSemana: WEEKDAY_NAMES[new Date(`${d.data}T12:00:00Z`).getUTCDay()],
+                profissionais: d.profissionais
+                  .map((p) => ({ id: p.profissionalId, nome: p.nome, horarios: ordenar(p.horarios.filter(noPeriodo)).slice(0, 3) }))
+                  .filter((p) => p.horarios.length > 0),
+              }))
+              .filter((d) => d.profissionais.length > 0)
+              .slice(0, 5),
+            orientacao: "Dia que nao aparece aqui nao esta fechado: so nao tem horario livre para o pedido. Fechado e so o que o calendario do prompt marca como FECHADO.",
           };
-        }
-        const dias = await disponibilidade.proximosDiasDisponiveis({ tenantId, servicoIds: servico_ids, profissionalId: profissional_id, dias: 21, maxResultados: periodo ? 10 : 5 });
-        return {
-          ok: true,
-          periodo: periodo || null,
-          dias: dias
-            .map((d) => ({
-              data: d.data,
-              ...pagamentoDoDia(d.data),
-              diaSemana: WEEKDAY_NAMES[new Date(`${d.data}T12:00:00Z`).getUTCDay()],
-              profissionais: d.profissionais
-                .map((p) => ({ id: p.profissionalId, nome: p.nome, horarios: ordenar(p.horarios.filter(noPeriodo)).slice(0, 3) }))
-                .filter((p) => p.horarios.length > 0),
-            }))
-            .filter((d) => d.profissionais.length > 0)
-            .slice(0, 5),
         };
+
+        // Servicos que nenhuma profissional faz junta (ex.: pe e mao com uma, sobrancelha com outra): a
+        // consulta junta voltava vazia e a IA disse "22/12 a clinica esta fechada" (Duda, 10/11/2026).
+        if (servico_ids.length > 1) {
+          const servs = await disponibilidade.resolverServicos(tenantId, servico_ids);
+          const juntos = disponibilidade.profissionaisHabilitados(servs).filter((id) => !profissional_id || id === profissional_id);
+          if (!juntos.length) {
+            const porServico = [];
+            for (const sv of servs) {
+              const prof = profissional_id && sv.profissionais.some((p) => p.profissionalId === profissional_id) ? profissional_id : undefined;
+              porServico.push({ servico: sv.nome, servico_id: sv.id, ...(await consultar([sv.id], prof)) });
+            }
+            return {
+              ok: true,
+              separados: true,
+              orientacao:
+                "Nenhuma profissional faz todos esses servicos no mesmo atendimento: eles sao agendados separados, cada um com quem faz (a clinica NAO esta fechada). Ofereca horarios do mesmo dia em sequencia (um logo depois do outro) e, ao confirmar, crie um agendamento para cada servico com criar_agendamento.",
+              porServico,
+            };
+          }
+        }
+        return { ok: true, ...(await consultar(servico_ids, profissional_id)) };
       },
     },
     {

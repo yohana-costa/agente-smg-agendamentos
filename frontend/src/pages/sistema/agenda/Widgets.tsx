@@ -219,7 +219,11 @@ export function ClienteSelect({ value, onChange }: { value: ClienteMin | null; o
               setErro('')
               try {
                 const c = await post<Cliente & { jaExistia: boolean }>('/clientes', { nome: novo.nome.trim(), telefone: novo.telefone })
-                setAviso(c.jaExistia ? 'Telefone já cadastrado: o agendamento será vinculado a este cliente.' : 'Cliente cadastrado.')
+                setAviso(
+                  c.jaExistia
+                    ? `Este telefone já é de ${c.nome}: o agendamento fica no nome de ${c.nome}. Se for outra pessoa, cadastre com o telefone dela ou sem telefone.`
+                    : 'Cliente cadastrado.'
+                )
                 onChange({ id: c.id, nome: c.nome, telefone: c.telefone, observacoes: c.observacoes })
                 setNovo(null)
               } catch (e) {
