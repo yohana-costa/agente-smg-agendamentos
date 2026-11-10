@@ -6,8 +6,8 @@ const AVISO = "smg_aviso_agendamento";
 // Lembrete com botoes (pedido da Dra, 10/11/2026): a cliente toca em Confirmar ou Cancelar. O toque
 // chega no webhook como texto do botao. Enquanto a Meta nao aprovar, o lembrete sai pelo LEMBRETE.
 const LEMBRETE_CONFIRMAR = "smg_lembrete_confirmar";
-const BOTAO_CONFIRMAR = "✅ Confirmar";
-const BOTAO_CANCELAR = "❌ Cancelar";
+const BOTAO_CONFIRMAR = "Confirmar"; // a Meta nao aceita emoji em botao
+const BOTAO_CANCELAR = "Cancelar";
 
 const MODELOS_CLIENTE = [
   {

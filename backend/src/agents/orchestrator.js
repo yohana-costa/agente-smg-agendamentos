@@ -609,9 +609,9 @@ async function processarEvento(tenant, config, evento) {
 // Resposta da cliente ao lembrete, tratada no sistema e nao pela IA (pedido da Dra, 10/11/2026: um
 // "confirmado" virou pergunta para a IA; nos testes a IA ora esquecia de registrar a presenca, ora
 // cancelava no "❌" sem perguntar).
-// - botao "✅ Confirmar": registra a presenca e responde na hora (true = IA nao responde);
+// - botao "Confirmar": registra a presenca e responde na hora (true = IA nao responde);
 // - confirmacao escrita logo depois do lembrete ("confirmado", "ok", "👍"): registra e a IA responde;
-// - botao "❌ Cancelar": pergunta se e para cancelar mesmo; o "sim" segue para a IA cancelar.
+// - botao "Cancelar": pergunta se e para cancelar mesmo; o "sim" segue para a IA cancelar.
 const CONFIRMACAO_ESCRITA = /^(✅|👍|ok\b|okay|sim\b|confirm|estarei|vou sim|pode confirmar|combinado|certo\b|t[aá] confirmad)/i;
 
 async function respostaAoLembrete(tenant, conversa, texto) {
