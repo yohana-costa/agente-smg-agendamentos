@@ -4,7 +4,7 @@ import { ApiError, del, errorMessage, get, patch, post, put } from '../../../lib
 import { brl, countdown, dateLong, dateTimeBr, duration, FORMA_PAGAMENTO, ORIGEM, phone } from '../../../lib/format'
 import { useAsync, useCountdown } from '../../../lib/hooks'
 import { useAuth } from '../../../lib/auth'
-import { ConfirmModal, Drawer, ErrorBanner, Field, Loading, Modal, MoneyInput, StatusBadge, SuccessBanner } from '../../../components/ui'
+import { ConfirmModal, Drawer, ErrorBanner, Field, Loading, Modal, MoneyInput, Segmented, StatusBadge, SuccessBanner } from '../../../components/ui'
 import type { Agendamento, PacoteCliente, Pagamento } from '../../../types'
 import { AdicionarProdutoModal, CancelarModal, FinalizarModal, PagamentoLocalModal, ReagendarModal } from './AcoesModais'
 import { AlertIcon, PagamentoIcon } from './icons'
@@ -12,7 +12,7 @@ import type { NovoPrefill, PreviaFinalizacao, Referencias } from './types'
 import { pagamentoPixPendente } from './utils'
 import { PixBox } from './Widgets'
 
-type Acao = 'cancelar' | 'noshow' | 'reagendar' | 'finalizar' | 'pagLocal' | 'produto' | 'excluir' | 'editar' | 'servicos' | 'receber' | null
+type Acao = 'cancelar' | 'noshow' | 'reagendar' | 'finalizar' | 'pagLocal' | 'produto' | 'excluir' | 'editar' | 'servicos' | 'receber' | 'sinal' | null
 
 const STATUS_PAGAMENTO: Record<Pagamento['status'], string> = {
   PENDENTE: 'Pendente',
@@ -201,6 +201,11 @@ export function AgendamentoPainel({
                   <button className="btn btn-sm" onClick={() => setAcao('editar')}>
                     ✎ Editar horário de término e valor
                   </button>
+                  {['CONFIRMADO', 'EM_ATENDIMENTO'].includes(ag.status) && emAberto(ag) > 0 ? (
+                    <button className="btn btn-sm" style={{ marginLeft: 6 }} onClick={() => setAcao('sinal')}>
+                      Registrar sinal recebido
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
               {segundos !== null && ag.status === 'AGUARDANDO_PAGAMENTO' ? (
@@ -381,6 +386,16 @@ export function AgendamentoPainel({
       {ag && acao === 'receber' ? <ReceberModal ag={ag} onClose={() => setAcao(null)} onDone={concluido} /> : null}
       {ag && acao === 'editar' ? (
         <EditarModal
+          ag={ag}
+          onClose={() => setAcao(null)}
+          onDone={(t) => {
+            setAcao(null)
+            concluido(t)
+          }}
+        />
+      ) : null}
+      {ag && acao === 'sinal' ? (
+        <SinalModal
           ag={ag}
           onClose={() => setAcao(null)}
           onDone={(t) => {
@@ -737,6 +752,72 @@ function ProcedimentosModal({ ag, refs, onClose, onDone }: { ag: Agendamento; re
             Confirmar mesmo assim (encaixe por cima do outro agendamento)
           </label>
         ) : null}
+      </div>
+    </Modal>
+  )
+}
+
+// Valor ainda nao pago (total menos pagamentos aprovados), igual ao backend.
+function emAberto(ag: Agendamento) {
+  const pago = ag.pagamentos.filter((p) => ['APROVADO', 'REEMBOLSADO_PARCIAL', 'REEMBOLSADO'].includes(p.status)).reduce((acc, p) => acc + p.valorBruto, 0)
+  return Math.max(0, ag.valorTotal - pago)
+}
+
+/** Sinal pago fora do sistema (ex.: 30% por Pix para dezembro): fica no agendamento e desconta no Finalizar. */
+function SinalModal({ ag, onClose, onDone }: { ag: Agendamento; onClose: () => void; onDone: (msg: string) => void }) {
+  const falta = emAberto(ag)
+  const [valor, setValor] = useState(Math.min(falta, Math.round(ag.valorTotal * 0.3)))
+  const [forma, setForma] = useState<'PIX' | 'DINHEIRO' | 'MAQUININHA'>('PIX')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  async function salvar() {
+    setSalvando(true)
+    setErro('')
+    try {
+      await post(`/agenda/agendamentos/${ag.id}/sinal`, { valor, forma })
+      onDone(`Sinal de ${brl(valor)} registrado. No Finalizar falta receber ${brl(falta - valor)}.`)
+    } catch (e) {
+      setErro(errorMessage(e))
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="Registrar sinal recebido"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose} disabled={salvando}>
+            Voltar
+          </button>
+          <button className="btn btn-primary" onClick={salvar} disabled={salvando || valor <= 0 || valor > falta}>
+            {salvando ? 'Salvando…' : `Registrar ${brl(valor)}`}
+          </button>
+        </>
+      }
+    >
+      <div className="stack">
+        <ErrorBanner message={erro} />
+        <div className="small muted">
+          Para o sinal que a cliente já pagou direto para a clínica. Ele fica no agendamento e, ao finalizar, só o restante é cobrado. Total {brl(ag.valorTotal)}, falta {brl(falta)}.
+        </div>
+        <Field label="Valor do sinal" hint={`Já vem com 30% do total (${brl(Math.round(ag.valorTotal * 0.3))}). Altere se for outro valor.`}>
+          <MoneyInput value={valor} onChange={setValor} />
+        </Field>
+        <Field label="Como foi pago">
+          <Segmented<'PIX' | 'DINHEIRO' | 'MAQUININHA'>
+            options={[
+              { key: 'PIX', label: 'Pix' },
+              { key: 'DINHEIRO', label: 'Dinheiro' },
+              { key: 'MAQUININHA', label: 'Maquininha' },
+            ]}
+            value={forma}
+            onChange={setForma}
+          />
+        </Field>
       </div>
     </Modal>
   )

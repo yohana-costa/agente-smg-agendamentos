@@ -12,13 +12,14 @@ function PagarNoLocal({ dados, onChange }: { dados: ConfigDados; onChange: (p: P
   const pg = dados.pagamentos
   const [ativo, setAtivo] = useState(pg.pagarNoLocalAtivo)
   const [meses, setMeses] = useState<number[]>(pg.mesesPagamentoAntecipado || [])
+  const [sinal, setSinal] = useState<number>(pg.sinalPct ?? 100)
   const s = useSalvar()
 
   const alternarMes = (m: number) => setMeses((atual) => (atual.includes(m) ? atual.filter((x) => x !== m) : [...atual, m].sort((a, b) => a - b)))
 
   const salvar = () =>
     s.salvar(async () => {
-      const r = await patch<ConfigDados['pagamentos']>('/configuracoes/pagamentos/regras', { pagarNoLocalAtivo: ativo, mesesPagamentoAntecipado: meses })
+      const r = await patch<ConfigDados['pagamentos']>('/configuracoes/pagamentos/regras', { pagarNoLocalAtivo: ativo, mesesPagamentoAntecipado: meses, sinalPct: sinal })
       onChange({ pagamentos: r })
     }, 'Regras de pagamento salvas. Valem para os próximos agendamentos.')
 
@@ -44,9 +45,22 @@ function PagarNoLocal({ dados, onChange }: { dados: ConfigDados; onChange: (p: P
                 })}
               </div>
             </div>
+            {meses.length ? (
+              <label className="row small" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <span className="strong">Cobrar antecipado</span>
+                <select className="select" style={{ width: 'auto' }} value={sinal} onChange={(e) => setSinal(Number(e.target.value))}>
+                  {[20, 30, 40, 50, 100].map((p) => (
+                    <option key={p} value={p}>
+                      {p === 100 ? 'o valor inteiro' : `sinal de ${p}%`}
+                    </option>
+                  ))}
+                </select>
+                <span className="muted">{sinal < 100 ? 'o restante é pago no dia, na clínica' : ''}</span>
+              </label>
+            ) : null}
             <p className="small muted">
               {meses.length
-                ? `Atendimentos em ${meses.map((m) => MESES_LONGOS[m - 1]).join(', ')} só são confirmados com o pagamento online antes. Nos outros meses, a cliente escolhe.`
+                ? `Atendimentos em ${meses.map((m) => MESES_LONGOS[m - 1]).join(', ')} só são confirmados com ${sinal < 100 ? `o sinal de ${sinal}% pago online antes` : 'o pagamento online antes'}. Nos outros meses, a cliente escolhe.`
                 : 'Nenhum mês marcado: a cliente sempre pode escolher pagar no local.'}{' '}
               Quem escolhe pagar no local já fica com o horário confirmado, e o valor é recebido ao finalizar o atendimento.
             </p>

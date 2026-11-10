@@ -134,7 +134,7 @@ function regrasPagamento(tenant, pagamentoDisponivel) {
   }
   return [
     "## Pagamento",
-    "Siga o campo `pagamento` que `consultar_horarios` devolve para o dia escolhido. Quando a cliente pode escolher, pergunte em uma frase curta se ela prefere pagar agora pelo link (Pix ou cartao) ou no dia, na clinica, e passe `pagamento` \"online\" ou \"local\" no `criar_agendamento`. Pagando no local o horario ja fica confirmado e nao tem link.",
+    "Siga o campo `pagamento` que `consultar_horarios` devolve para o dia escolhido. Com sinal, diga o valor do sinal (`sinalAPagarAgora` do agendamento) e quanto fica para o dia (`restanteNoDia`); nunca diga que e o valor inteiro. Quando a cliente pode escolher, pergunte em uma frase curta se ela prefere pagar agora pelo link (Pix ou cartao) ou no dia, na clinica, e passe `pagamento` \"online\" ou \"local\" no `criar_agendamento`. Pagando no local o horario ja fica confirmado e nao tem link.",
     "Quando o campo disser que e SOMENTE online e antecipado, explique isso com naturalidade e use pagamento \"online\". Nunca diga que um dia exige pagamento antecipado sem o campo dizer isso.",
   ];
 }
@@ -225,7 +225,12 @@ function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true
 }
 
 function resumoAgendamento(ag) {
+  const pendente = (ag.pagamentos || []).find((p) => p.status === "PENDENTE");
+  const pagoOnline = (ag.pagamentos || []).filter((p) => p.status === "APROVADO" && p.modo === "ONLINE").reduce((acc, p) => acc + p.valorBruto, 0);
   return {
+    // sinal: o link cobra so uma parte; o restante e pago no dia
+    ...(pendente && pendente.valorBruto < ag.valorTotal ? { sinalAPagarAgora: brl(pendente.valorBruto), restanteNoDia: brl(ag.valorTotal - pendente.valorBruto) } : {}),
+    ...(!pendente && pagoOnline > 0 && pagoOnline < ag.valorTotal ? { sinalPago: brl(pagoOnline), restanteNoDia: brl(ag.valorTotal - pagoOnline) } : {}),
     id: ag.id,
     data: ag.data,
     hora: ag.hora,
@@ -442,12 +447,18 @@ function buildTools(ctx) {
           return periodo === "manha" ? hora < 12 : periodo === "tarde" ? hora >= 12 && hora < 18 : hora >= 18;
         };
         // Pagar no local por dia: so a regra no prompt nao bastou (em 08/12 a IA ofereceu "pagamento no dia").
+        // Sinal (tenant.sinalPct < 100): no mes antecipado a reserva cobra so o sinal e o resto e pago no dia.
+        const sinalPct = Math.min(100, Math.max(1, Number(tenant.sinalPct) || 100));
+        const textoAntecipado =
+          sinalPct < 100
+            ? `neste mes o horario e garantido com um SINAL de ${sinalPct}% do valor, pago online agora (Pix ou cartao, pelo link); o restante e pago no dia, na clinica. Nao existe reservar sem o sinal: explique isso antes de agendar`
+            : "SOMENTE online e antecipado neste mes (nao existe pagar no local; explique isso antes de agendar)";
         const pagamentoDoDia = (dia) => {
-          if (!tenant.pagarNoLocalAtivo) return {};
+          if (!tenant.pagarNoLocalAtivo) return sinalPct < 100 && ctx.pagamentoDisponivel ? { pagamento: textoAntecipado } : {};
           return agendamentoService.aceitaPagarNoLocal(tenant, zonedToUtc(dia, "12:00", tenant.timezone))
             ? { pagamento: "a cliente escolhe: online agora ou no dia, na clinica" }
             : ctx.pagamentoDisponivel
-              ? { pagamento: "SOMENTE online e antecipado neste mes (nao existe pagar no local; explique isso antes de agendar)" }
+              ? { pagamento: textoAntecipado }
               : { pagamento: "neste mes nao da para agendar por aqui: use consultar_equipe com tipo agendamento, sem falar de sistema" };
         };
         const consultar = async (ids, profId) => {

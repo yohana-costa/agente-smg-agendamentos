@@ -30,6 +30,7 @@ function dadosPagamento(tenant) {
     oauthDisponivel: mpOauth.configurado(),
     pagarNoLocalAtivo: tenant.pagarNoLocalAtivo,
     mesesPagamentoAntecipado: tenant.mesesPagamentoAntecipado || [],
+    sinalPct: tenant.sinalPct ?? 100,
   };
 }
 
@@ -147,6 +148,7 @@ router.patch(
     if (Array.isArray(b.mesesPagamentoAntecipado)) {
       data.mesesPagamentoAntecipado = [...new Set(b.mesesPagamentoAntecipado.map((m) => toInt(m, 0)).filter((m) => m >= 1 && m <= 12))].sort((x, y) => x - y);
     }
+    if (b.sinalPct !== undefined) data.sinalPct = toInt(b.sinalPct, 100, { min: 1, max: 100 });
     const t = await prisma.tenant.update({ where: { id: req.auth.tenantId }, data });
     return ok(res, dadosPagamento(t));
   })

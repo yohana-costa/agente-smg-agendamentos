@@ -112,6 +112,7 @@
 .ag-pay-PAGAR_NO_LOCAL { color: hsl(var(--info)); }
 .ag-pay-AGUARDANDO { color: var(--st-aguardando); }
 .ag-pay-COMANDA_ABERTA { color: hsl(var(--warning)); }
+.ag-pay-SINAL_PAGO { color: hsl(var(--info)); }
 
 .ag-bloq {
   border: 1px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); text-align: left; font: inherit; font-size: 12px; cursor: pointer; padding: 3px 6px;

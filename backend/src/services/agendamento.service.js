@@ -29,6 +29,8 @@ function situacaoPagamento(ag) {
   const aprovados = (ag.pagamentos || []).filter((p) => ["APROVADO", "REEMBOLSADO_PARCIAL", "REEMBOLSADO"].includes(p.status));
   if (ag.status === "AGUARDANDO_PAGAMENTO") return "AGUARDANDO";
   if (ag.status === "CONCLUIDO" && valorEmAberto(ag) > 0) return "COMANDA_ABERTA";
+  // so o sinal foi pago online: o resto e recebido ao finalizar
+  if (["CONFIRMADO", "EM_ATENDIMENTO"].includes(ag.status) && aprovados.length && valorEmAberto(ag) > 0) return "SINAL_PAGO";
   if (aprovados.some((p) => p.modo === "ONLINE")) return "PAGO_ONLINE";
   if (aprovados.some((p) => p.modo === "LOCAL")) return "PAGO_LOCAL";
   if (ag.modoPagamento === "LOCAL") return "PAGAR_NO_LOCAL";
@@ -121,6 +123,14 @@ function aceitaPagarNoLocal(tenant, inicio) {
   if (!tenant.pagarNoLocalAtivo) return false;
   const { month } = zonedParts(inicio, tenant.timezone);
   return !(tenant.mesesPagamentoAntecipado || []).includes(month);
+}
+
+// Site e agente com pagamento obrigatorio (mes antecipado ou estabelecimento sem pagar no local):
+// cobra so o sinal (tenant.sinalPct). Painel (MANUAL) cobra o valor inteiro, como antes.
+function valorDaReserva(tenant, inicio, valorTotal, origem) {
+  const pct = Math.min(100, Math.max(1, Number(tenant.sinalPct) || 100));
+  if (origem === "MANUAL" || pct >= 100 || aceitaPagarNoLocal(tenant, inicio)) return valorTotal;
+  return Math.max(1, Math.round((valorTotal * pct) / 100));
 }
 
 function formaPagamentoCliente(tenant, inicio, pedida) {
@@ -250,6 +260,7 @@ async function criar(input) {
       }
       const valorTotal = Math.max(0, valorServicos + valorProdutos - desconto);
       const precisaPagamentoOnline = formaPagamento !== "LOCAL" && valorTotal > 0;
+      const valorReserva = precisaPagamentoOnline ? valorDaReserva(tenant, horarios.inicio, valorTotal, origem) : 0;
 
       const agendamento = await tx.agendamento.create({
         data: {
@@ -284,9 +295,9 @@ async function criar(input) {
           tenantId,
           clienteId: cliente.id,
           agendamentoId: agendamento.id,
-          valor: valorTotal,
+          valor: valorReserva,
           origem: origem === "MANUAL" ? "MANUAL" : origem,
-          descricao: itensServico.map((s) => s.nome).join(" + "),
+          descricao: `${valorReserva < valorTotal ? "Sinal: " : ""}${itensServico.map((s) => s.nome).join(" + ")}`,
         });
       }
       return { agendamento, pagamento, cliente };
@@ -749,6 +760,26 @@ async function confirmarPresenca(tenantId, id) {
   return obterSerializado(tenantId, id);
 }
 
+/**
+ * Sinal recebido fora do sistema (ex.: 30% por Pix de quem marcou dezembro direto com a Dra, 10/11/2026).
+ * Fica como pagamento aprovado do agendamento: ao finalizar so o restante e cobrado.
+ */
+async function registrarSinal(tenantId, id, { valor, forma } = {}) {
+  const ag = await obter(tenantId, id);
+  if (!["CONFIRMADO", "EM_ATENDIMENTO"].includes(ag.status)) throw badRequest("Só dá para registrar sinal em agendamento confirmado.");
+  if (!["PIX", "DINHEIRO", "MAQUININHA"].includes(forma)) throw badRequest("Informe como o sinal foi pago: Pix, dinheiro ou maquininha.");
+  const v = toInt(valor, 0, { min: 0 });
+  if (v <= 0) throw badRequest("Informe o valor do sinal.");
+  const emAberto = valorEmAberto(ag);
+  if (v > emAberto) throw badRequest(`O sinal não pode passar do que falta pagar (${brl(emAberto)}).`);
+  await prisma.pagamento.create({
+    data: { tenantId, clienteId: ag.clienteId, agendamentoId: id, descricao: "Sinal recebido", origem: "MANUAL", modo: "LOCAL", forma, status: "APROVADO", valorBruto: v, taxaGateway: 0, valorLiquido: v, pagoEm: new Date() },
+  });
+  log("agenda", "sinal_registrado", { tenantId, id, valor: v, forma });
+  notificarAgenda(tenantId, id, "pago");
+  return obterSerializado(tenantId, id);
+}
+
 // ---------- ajuste pelo painel ----------
 
 /**
@@ -1056,7 +1087,7 @@ async function reenviarLink(tenantId, id) {
     `Oi, ${ag.cliente.nome.split(" ")[0]}! Segue o link para pagamento do seu agendamento de ${ag.servicos.map((s) => s.nome).join(" + ")} em ${formatDateBr(
       ag.inicio,
       tenant.timezone
-    )} às ${formatTimeBr(ag.inicio, tenant.timezone)} (${brl(ag.valorTotal)}). A reserva expira em ${minutos} minutos: ${pagamento.linkPagamento}`,
+    )} às ${formatTimeBr(ag.inicio, tenant.timezone)} (${pagamento.valorBruto < ag.valorTotal ? `sinal de ${brl(pagamento.valorBruto)}; o restante é pago no dia` : brl(ag.valorTotal)}). A reserva expira em ${minutos} minutos: ${pagamento.linkPagamento}`,
     { autor: "SISTEMA", clienteId: ag.clienteId }
   );
   return { enviado: true };
@@ -1100,6 +1131,7 @@ module.exports = {
   registrarPagamentoNoLocal,
   valorEmAberto,
   aceitaPagarNoLocal,
+  valorDaReserva,
   ajustar,
   receberPagamento,
   mudarParaPagarNoLocal,
@@ -1107,4 +1139,5 @@ module.exports = {
   agendamentosParaPacote,
   aplicarPacote,
   confirmarPresenca,
+  registrarSinal,
 };

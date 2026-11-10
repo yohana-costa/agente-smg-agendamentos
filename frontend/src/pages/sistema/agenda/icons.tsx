@@ -13,6 +13,13 @@ export function PagamentoIcon({ situacao, comTexto = false }: { situacao: string
         <path d="M5 8.2l2 2 4-4.4" />
       </svg>
     )
+  } else if (situacao === 'SINAL_PAGO') {
+    icon = (
+      <svg {...svg}>
+        <circle cx="8" cy="8" r="6.5" />
+        <path d="M8 1.5v13" />
+      </svg>
+    )
   } else if (situacao === 'PAGAR_NO_LOCAL') {
     icon = (
       <svg {...svg}>

@@ -119,7 +119,7 @@ export interface Agendamento {
   presencaConfirmadaEm?: string | null
   motivoCancelamento: string | null
   pendenteFinalizacao: boolean
-  situacaoPagamento: 'AGUARDANDO' | 'PAGO_ONLINE' | 'PAGO_LOCAL' | 'PAGAR_NO_LOCAL' | 'SEM_COBRANCA' | 'COMANDA_ABERTA'
+  situacaoPagamento: 'AGUARDANDO' | 'PAGO_ONLINE' | 'PAGO_LOCAL' | 'PAGAR_NO_LOCAL' | 'SEM_COBRANCA' | 'COMANDA_ABERTA' | 'SINAL_PAGO'
   segundosRestantesReserva: number | null
   linkPagamento: string | null
   cliente: Cliente

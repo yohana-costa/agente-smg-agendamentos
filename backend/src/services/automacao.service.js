@@ -71,7 +71,8 @@ function varsAgendamento(agendamento, tenant, extras = {}) {
     profissional: agendamento.profissional?.nome || "",
     data: formatDateBr(agendamento.inicio, tz),
     hora: formatTimeBr(agendamento.inicio, tz),
-    valor: brl(agendamento.valorTotal),
+    // com sinal (meses antecipados) o que falta pagar agora e so o sinal da cobranca pendente
+    valor: brl(pagamentoPendente ? pagamentoPendente.valorBruto : agendamento.valorTotal),
     estabelecimento: tenant.nome,
     link_pagamento: pagamentoPendente?.linkPagamento || "",
     link_site: `${env.publicAppUrl}/s/${tenant.slug}`,

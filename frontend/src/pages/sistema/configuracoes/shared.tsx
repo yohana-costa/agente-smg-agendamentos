@@ -23,6 +23,7 @@ export interface ConfigDados {
     contaId: string | null
     oauthDisponivel: boolean
     pagarNoLocalAtivo: boolean
+    sinalPct?: number
     mesesPagamentoAntecipado: number[]
   }
   site: { url: string; siteTitulo: string | null; siteDescricao: string | null; siteCorPrimaria: string | null; siteLogoUrl: string | null; siteBannerUrl: string | null }

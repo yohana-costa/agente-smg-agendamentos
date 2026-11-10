@@ -57,6 +57,8 @@ export default function BookingWizard({ slug, site }: { slug: string; site: Site
   const pagarNoLocalAtivo = Boolean(site.pagarNoLocal?.ativo)
   const mesAntecipado = Boolean(data) && (site.pagarNoLocal?.mesesAntecipado || []).includes(Number(data.slice(5, 7)))
   const localPermitido = pagarNoLocalAtivo && Boolean(data) && !mesAntecipado
+  // Pagamento obrigatorio com sinal: a reserva cobra so o percentual, o resto e pago no dia
+  const sinalPct = Math.min(100, site.pagarNoLocal?.sinalPct ?? 100)
   const [pagarLocal, setPagarLocal] = useState(false)
   const vaiPagarNoLocal = localPermitido && (pagarLocal || semPagamentoOnline)
   const semComoPagar = semPagamentoOnline && !vaiPagarNoLocal
@@ -487,7 +489,9 @@ export default function BookingWizard({ slug, site }: { slug: string; site: Site
               <PbAlert tipo="aviso">
                 {semPagamentoOnline
                   ? 'Para este mês o horário só é confirmado com pagamento antecipado. Fale com o estabelecimento para marcar.'
-                  : 'Para este mês o horário só é confirmado com o pagamento antecipado.'}
+                  : sinalPct < 100
+                    ? `Para este mês o horário é confirmado com um sinal de ${sinalPct}% (${brl(Math.round((total * sinalPct) / 100))}) pago agora. O restante (${brl(total - Math.round((total * sinalPct) / 100))}) é pago no dia, na clínica.`
+                    : 'Para este mês o horário só é confirmado com o pagamento antecipado.'}
               </PbAlert>
             ) : null}
 

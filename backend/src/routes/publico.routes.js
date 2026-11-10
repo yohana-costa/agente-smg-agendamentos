@@ -90,7 +90,7 @@ router.get(
       reservaMinutos: env.reservaMinutos,
       pagamentoOnline: require("../services/pagamentos/gateway").modo(t) !== "desconectado",
       // Pagar no local: a cliente escolhe, menos nos meses de pagamento antecipado (1-12).
-      pagarNoLocal: { ativo: t.pagarNoLocalAtivo, mesesAntecipado: t.mesesPagamentoAntecipado || [] },
+      pagarNoLocal: { ativo: t.pagarNoLocalAtivo, mesesAntecipado: t.mesesPagamentoAntecipado || [], sinalPct: t.sinalPct ?? 100 },
     });
   })
 );

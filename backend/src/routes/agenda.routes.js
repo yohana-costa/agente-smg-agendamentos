@@ -336,6 +336,14 @@ router.patch(
     return agendamentoService.ajustar(req.auth.tenantId, req.params.id, { horaFim: b.horaFim, valorTotal: b.valorTotal, encaixe: toBool(b.encaixe) });
   })
 );
+// sinal recebido fora do sistema: desconta no Finalizar
+router.post(
+  "/agendamentos/:id/sinal",
+  acao((req) => {
+    if (req.auth.perfil === "PROFISSIONAL") throw forbidden("Apenas dono e recepcao podem registrar sinal.");
+    return agendamentoService.registrarSinal(req.auth.tenantId, req.params.id, { valor: req.body?.valor, forma: req.body?.forma });
+  })
+);
 // incluir / tirar / trocar procedimentos (e usar o pacote da cliente)
 router.put(
   "/agendamentos/:id/servicos",

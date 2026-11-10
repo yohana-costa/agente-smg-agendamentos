@@ -173,6 +173,9 @@ model Tenant {
   // nos meses de mesesPagamentoAntecipado (1-12), em que o pagamento online antes continua obrigatorio.
   pagarNoLocalAtivo        Boolean @default(false)
   mesesPagamentoAntecipado Int[]   @default([])
+  // Quando o pagamento online e obrigatorio (meses antecipados ou sem pagar no local), cobra so este
+  // percentual na reserva; o resto fica em aberto e e recebido ao finalizar. 100 = valor inteiro.
+  sinalPct                 Int     @default(100)
 
   // Pagamentos (gateway SMG -> Mercado Pago)
   mpAccessToken String?
