@@ -109,7 +109,7 @@ export function AgenteAtendimento({ dados, onConfig, irPara }: { dados: AgentesD
               <Field label="Tom de voz">
                 <input className="input" value={form.personaTom} onChange={(e) => set('personaTom', e.target.value)} placeholder="Ex.: Cordial, objetivo e acolhedor" />
               </Field>
-              <Field label="Forma de se apresentar" className="full" hint="Primeira mensagem quando o cliente inicia a conversa.">
+              <Field label="Forma de se apresentar" className="full" hint="Usada quando a cliente começa o atendimento (ex.: só manda um bom dia). Escreva {link} para incluir o link de agendamento.">
                 <textarea className="textarea" rows={2} value={form.personaApresentacao} onChange={(e) => set('personaApresentacao', e.target.value)} />
               </Field>
             </div>

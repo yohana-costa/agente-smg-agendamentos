@@ -232,21 +232,47 @@ function limparFrasesProntas(texto) {
     .trim();
 }
 
+// Mais de 12h sem mensagem: o que vem antes e outro atendimento. Sem a marca, um "bom dia" da Mariana
+// em 09/11 fez a IA retomar o design de sobrancelha que ela tinha pedido em 20/10.
+const INTERVALO_NOVO_ATENDIMENTO_MS = 12 * 60 * 60 * 1000;
+
 async function historico(conversaId) {
-  const msgs = await prisma.mensagem.findMany({ where: { conversaId }, orderBy: { createdAt: "desc" }, take: env.agentHistoryLimit });
-  return msgs.reverse().map((m) => {
-    const texto = String(m.texto || "");
-    if (m.autor === "SISTEMA" && texto.startsWith(PREFIXO_NOTA)) {
-      return { role: "system", content: `Nota interna (a cliente NAO viu; repasse com suas palavras): ${texto.slice(PREFIXO_NOTA.length)}` };
+  const msgs = (await prisma.mensagem.findMany({ where: { conversaId }, orderBy: { createdAt: "desc" }, take: env.agentHistoryLimit })).reverse();
+  const saida = [];
+  msgs.forEach((m, i) => {
+    const anterior = msgs[i - 1];
+    if (anterior && new Date(m.createdAt) - new Date(anterior.createdAt) > INTERVALO_NOVO_ATENDIMENTO_MS) {
+      const dias = Math.max(1, Math.round((Date.now() - new Date(anterior.createdAt)) / 86400000));
+      saida.push({ role: "system", content: `--- As mensagens acima sao de um atendimento anterior (cerca de ${dias} dia(s) atras): assunto antigo. Nao retome servico, data ou pedido de la sem a cliente falar de novo. ---` });
     }
-    if (m.autor === "SISTEMA" && texto.startsWith(PREFIXO_AUTOMATICA)) {
-      return { role: "system", content: `Mensagem automatica do WhatsApp do estabelecimento, ja recebida pela cliente (nao repita o conteudo): ${texto.slice(PREFIXO_AUTOMATICA.length)}` };
-    }
-    return {
-      role: m.autor === "CLIENTE" ? "user" : "assistant",
-      content: m.autor === "HUMANO" ? `[Atendente humano]: ${texto}` : m.autor === "SISTEMA" ? `[Mensagem automatica do sistema]: ${texto}` : texto,
-    };
+    saida.push(mensagemDoHistorico(m));
   });
+  return saida;
+}
+
+// Cliente comecando o atendimento agora: nada da equipe/IA nas ultimas 12h e nenhuma mensagem dela
+// esperando resposta ha mais de 30 min (essa ja era conversa em andamento).
+async function inicioDeAtendimento(conversaId) {
+  const ultima = await prisma.mensagem.findFirst({ where: { conversaId, autor: { not: "CLIENTE" } }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+  if (ultima && Date.now() - new Date(ultima.createdAt) < INTERVALO_NOVO_ATENDIMENTO_MS) return false;
+  const esperando = await prisma.mensagem.count({
+    where: { conversaId, autor: "CLIENTE", createdAt: { ...(ultima ? { gt: ultima.createdAt } : {}), lt: new Date(Date.now() - 30 * 60000) } },
+  });
+  return esperando === 0;
+}
+
+function mensagemDoHistorico(m) {
+  const texto = String(m.texto || "");
+  if (m.autor === "SISTEMA" && texto.startsWith(PREFIXO_NOTA)) {
+    return { role: "system", content: `Nota interna (a cliente NAO viu; repasse com suas palavras): ${texto.slice(PREFIXO_NOTA.length)}` };
+  }
+  if (m.autor === "SISTEMA" && texto.startsWith(PREFIXO_AUTOMATICA)) {
+    return { role: "system", content: `Mensagem automatica do WhatsApp do estabelecimento, ja recebida pela cliente (nao repita o conteudo): ${texto.slice(PREFIXO_AUTOMATICA.length)}` };
+  }
+  return {
+    role: m.autor === "CLIENTE" ? "user" : "assistant",
+    content: m.autor === "HUMANO" ? `[Atendente humano]: ${texto}` : m.autor === "SISTEMA" ? `[Mensagem automatica do sistema]: ${texto}` : texto,
+  };
 }
 
 // Celular brasileiro chega com ou sem o 9 depois do DDD (55 + DDD + 9 + 8 digitos).
@@ -373,6 +399,7 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
         linkJaEnviado,
         mesCitado: await mesCitadoNaConversa(conversaId),
         falasDaEquipe: falas,
+        inicioDeAtendimento: await inicioDeAtendimento(conversaId),
         funcionamento: await prisma.horarioFuncionamento.findMany({ where: { tenantId: tenant.id } }),
         diasFechados: (await prisma.diaFechado.findMany({ where: { tenantId: tenant.id, data: { gte: todayStr(tenant.timezone) } }, select: { data: true } })).map((d) => d.data),
       });

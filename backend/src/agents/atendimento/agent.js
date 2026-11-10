@@ -95,15 +95,28 @@ function regrasPagamento(tenant, pagamentoDisponivel) {
   ];
 }
 
-function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true, linkJaEnviado = false, mesCitado = null, falasDaEquipe = [], funcionamento = [], diasFechados = [] }) {
+// Apresentacao configurada no painel (Agentes de IA > Persona). {link} vira o link do site quando
+// o agendamento pelo site esta liberado.
+// Cliente ja cadastrada: o pedido de nome sai do texto aqui (so a instrucao no prompt nao bastou, a
+// IA copiava "Me manda o seu nome" para quem ja tinha cadastro).
+function apresentacaoConfigurada(config, linkSite, siteLiberado, { semPedidoDeNome = false } = {}) {
+  let texto = String(config.personaApresentacao || "").trim();
+  if (!texto) return "";
+  if (semPedidoDeNome) texto = texto.replace(/\b(o\s+)?seu\s+nome(\s+completo)?\s+e\s+/i, "");
+  return texto.replace(/\{link\}/gi, siteLiberado ? linkSite : "").replace(/\s+([.!?,])/g, "$1").trim();
+}
+
+function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true, linkJaEnviado = false, mesCitado = null, falasDaEquipe = [], funcionamento = [], diasFechados = [], inicioDeAtendimento = false }) {
   const hoje = todayStr(tenant.timezone);
   const agora = zonedParts(new Date(), tenant.timezone);
   const linkSite = `${env.publicAppUrl}/s/${tenant.slug}`;
-  const blocoAgendamento = pagamentoDisponivel || tenant.pagarNoLocalAtivo
+  const siteLiberado = pagamentoDisponivel || tenant.pagarNoLocalAtivo;
+  const apresentacao = apresentacaoConfigurada(config, linkSite, siteLiberado, { semPedidoDeNome: Boolean(cliente) });
+  const blocoAgendamento = siteLiberado
     ? [
         "## Link do site para agendar",
         linkSite,
-        "Envie o link so no momento certo: quando a cliente pedir, quando quiser agendar sozinha ou quando ja tiver decidido o servico e for mais facil ela escolher o horario no site. Nunca no inicio da conversa nem junto de toda resposta.",
+        "Envie o link so no momento certo: quando a cliente pedir, quando quiser agendar sozinha, quando ja tiver decidido o servico e for mais facil ela escolher o horario no site, ou quando a apresentacao configurada trouxer o link. Fora isso, nunca no inicio da conversa nem junto de toda resposta.",
         linkJaEnviado
           ? "O link JA foi enviado nesta conversa: nao mande de novo, a menos que a cliente peca."
           : "O link ainda nao foi enviado nesta conversa.",
@@ -120,9 +133,21 @@ function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true
     `Voce e ${config.personaNome}, do atendimento de ${tenant.nome}.`,
     "Fale como alguem da recepcao: nunca se apresente como assistente virtual, IA, robo ou atendimento automatico. Se a cliente perguntar de verdade se esta falando com um robo ou com uma pessoa, nao negue: diga com naturalidade que e o atendimento automatico do estabelecimento e que chama alguem da equipe se ela preferir.",
     `Tom de voz: ${config.personaTom}.`,
-    config.personaApresentacao
-      ? `Apresentacao configurada pelo estabelecimento (use so como referencia de tom; a recepcao continua curta, como na regra 7): ${config.personaApresentacao}`
-      : "",
+    // Pedido da Dra (10/11/2026): "Bom dia meninas" deve receber a apresentacao da clinica, pedindo
+    // nome e procedimento, com o link para agendar sozinha.
+    apresentacao && inicioDeAtendimento
+      ? [
+          `A cliente esta COMECANDO o atendimento agora. Se ela so cumprimentou, responda com a saudacao do horario ("${saudacaoDoHorario(agora.hour)}") seguida EXATAMENTE desta apresentacao do estabelecimento, sem trocar nomes nem palavras: "${apresentacao}"`,
+          cliente
+            ? `Ela ja e cliente cadastrada (${cliente.nome}): cumprimente pelo primeiro nome logo depois da saudacao e NAO peca o nome dela.`
+            : "",
+          "Se ela ja disse o que quer, responda a pergunta e use da apresentacao so o que faltar.",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : apresentacao
+        ? `Apresentacao configurada pelo estabelecimento (o atendimento ja esta em andamento: use so como referencia de tom): ${apresentacao}`
+        : "",
     `Hoje e ${WEEKDAY_NAMES[agora.weekday]}, ${formatDateBr(new Date(), tenant.timezone)} (${hoje}), agora sao ${String(agora.hour).padStart(2, "0")}:${String(agora.minute).padStart(2, "0")} (use "${saudacaoDoHorario(agora.hour)}" ao cumprimentar). Fuso: ${tenant.timezone}.`,
     "Calendario dos proximos dias (use esta lista para converter dia da semana em data; nunca calcule por conta propria):",
     proximosDias(hoje, 14, { funcionamento, diasFechados }),
@@ -275,15 +300,24 @@ function buildTools(ctx) {
       description:
         "Consulta horarios livres para um ou mais servicos (no mesmo atendimento). Sem data, retorna os proximos dias com horario. Considera jornada, folgas, bloqueios, Google Calendar, duracao total e intervalos. Se nenhuma profissional faz todos os servicos juntos, devolve `separados` com os horarios de cada servico.",
       schema: z.object({
-        servico_ids: z.array(z.string()).min(1).describe("Ids (ou nomes exatos) dos servicos escolhidos, na ordem"),
+        servico_ids: z.array(z.string()).optional().describe("Ids (ou nomes exatos) dos servicos escolhidos, na ordem. Para remarcar, use agendamento_id no lugar"),
+        agendamento_id: z.string().optional().describe("Para REMARCAR um agendamento que a cliente ja tem (id de meus_agendamentos): usa os servicos e a profissional dele"),
         profissional_id: z.string().optional().describe("Id do profissional, se o cliente escolheu"),
         data: z.string().optional().describe("Data AAAA-MM-DD. Se o cliente citou um dia (ex.: sexta), passe a data tirada do calendario do prompt"),
         periodo: z.enum(["manha", "tarde", "noite"]).optional().describe("Se o cliente pediu um periodo: manha (antes das 12:00), tarde (12:00 a 17:59), noite (18:00 em diante)"),
         hora_desejada: z.string().optional().describe("HH:mm, se a cliente pediu um horario especifico (ex.: 14:00)"),
       }),
       handler: async (entrada) => {
-        const servico_ids = await idsDeServicos(entrada.servico_ids);
-        const profissional_id = await idDeProfissional(entrada.profissional_id);
+        // Remarcar: servicos vem do agendamento da cliente (a IA trocou a depilacao da Mariana por
+        // design de sobrancelha, assunto de outubro no historico, 09/11/2026).
+        let remarcando = null;
+        if (entrada.agendamento_id) {
+          remarcando = await agendamentoDoCliente(entrada.agendamento_id);
+          if (!remarcando) return { ok: false, error: "Agendamento nao encontrado para esta cliente. Chame meus_agendamentos." };
+        }
+        if (!remarcando && !(entrada.servico_ids || []).length) return { ok: false, error: "Informe servico_ids (ou agendamento_id para remarcar)." };
+        const servico_ids = remarcando ? remarcando.servicos.map((s) => s.servicoId) : await idsDeServicos(entrada.servico_ids);
+        const profissional_id = remarcando && !entrada.profissional_id ? remarcando.profissionalId : await idDeProfissional(entrada.profissional_id);
         const { data, periodo, hora_desejada } = entrada;
         // Horarios mais proximos do pedido primeiro; a lista volta curta para nao virar "textao".
         const minutos = (h) => Number(String(h).slice(0, 2)) * 60 + Number(String(h).slice(3, 5));
@@ -306,7 +340,7 @@ function buildTools(ctx) {
         };
         const consultar = async (ids, profId) => {
           if (data) {
-            const r = await disponibilidade.listarHorarios({ tenantId, servicoIds: ids, profissionalId: profId, data });
+            const r = await disponibilidade.listarHorarios({ tenantId, servicoIds: ids, profissionalId: profId, data, excluirAgendamentoId: remarcando?.id });
             // Clinica fechada no dia: o sistema avisa (so "sem horario" fez a IA dizer que atendia na segunda)
             const fechado = r.profissionais.length > 0 && r.profissionais.every((p) => ["FECHADO_ROTINA", "FECHADO_FORA_ROTINA"].includes(p.motivo));
             if (fechado) {
@@ -327,12 +361,16 @@ function buildTools(ctx) {
               periodo: periodo || null,
               ...(desejo !== null ? { horaDesejadaLivre: r.profissionais.some((p) => p.horarios.includes(hora_desejada)) } : {}),
               profissionais: r.profissionais.map((p) => {
-                const livres = ordenar(p.horarios.filter(noPeriodo));
+                const emOrdem = p.horarios.filter(noPeriodo);
+                const livres = ordenar(emOrdem);
                 return {
                   id: p.profissionalId,
                   nome: p.nome,
                   horarios: livres.slice(0, 3),
                   outrosHorariosLivres: Math.max(0, livres.length - 3),
+                  // "tem os ultimos horarios?" voltava 13:00-14:00 sem dizer que eram os unicos (Gab, 10/11/2026)
+                  ...(emOrdem.length > 3 ? { ultimosHorarios: emOrdem.slice(-3) } : {}),
+                  ...(emOrdem.length && emOrdem.length <= 3 ? { unicosHorariosDoDia: true } : {}),
                   ...(p.motivo === "FOLGA_SEMANAL" ? { observacao: `${p.nome} nao atende neste dia da semana` } : {}),
                 };
               }),
@@ -340,7 +378,8 @@ function buildTools(ctx) {
                 ? { semHorario: "A clinica ABRE neste dia; so nao tem horario livre para este pedido. Nao diga que esta fechada." }
                 : {}),
               orientacao:
-                "Ofereca no maximo 3 opcoes, sem lista longa. A lista e um resumo: antes de dizer que um horario pedido nao esta livre, consulte de novo com hora_desejada.",
+                "Ofereca no maximo 3 opcoes, sem lista longa. A lista e um resumo: antes de dizer que um horario pedido nao esta livre, consulte de novo com hora_desejada. Pedido de ultimo horario / mais tarde: ofereca `ultimosHorarios`. Horario pedido que nao tem: diga claramente que esse nao tem e quais estao livres; com `unicosHorariosDoDia`, diga que sao os unicos horarios livres do dia e deixe ela escolher." +
+                (remarcando ? ` Remarcando o agendamento de ${remarcando.servicos.map((s) => s.nome).join(" + ")}: fale desse servico e use reagendar_agendamento.` : ""),
             };
           }
           const dias = await disponibilidade.proximosDiasDisponiveis({ tenantId, servicoIds: ids, profissionalId: profId, dias: 21, maxResultados: periodo ? 10 : 5 });
