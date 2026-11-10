@@ -41,6 +41,8 @@ export interface Cliente {
   telefone: string
   email?: string | null
   observacoes?: string | null
+  /** sinal antecipado no site/IA: null = automatico (2 faltas) */
+  exigeSinal?: boolean | null
   pontos: number
   createdAt?: string
   segmento?: string

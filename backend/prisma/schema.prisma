@@ -444,6 +444,8 @@ model Cliente {
   pontos            Int       @default(0)
   senhaHash         String?
   portalAtivo       Boolean   @default(false)
+  // Sinal antecipado no site/IA: null = automatico (a partir de 2 no-shows), true = sempre, false = nunca
+  exigeSinal        Boolean?
   mescladoEmId      String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt

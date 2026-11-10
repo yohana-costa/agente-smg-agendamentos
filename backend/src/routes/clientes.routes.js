@@ -119,6 +119,8 @@ router.patch(
     if (req.body.nome !== undefined) data.nome = textOrEmpty(req.body.nome) || cliente.nome;
     if (req.body.email !== undefined) data.email = textOrNull(req.body.email);
     if (req.body.observacoes !== undefined) data.observacoes = textOrNull(req.body.observacoes);
+    // sinal antecipado: null = automatico (2 faltas), true = sempre, false = nunca
+    if (req.body.exigeSinal !== undefined) data.exigeSinal = req.body.exigeSinal === null || req.body.exigeSinal === "AUTO" ? null : Boolean(req.body.exigeSinal);
     // Telefone vazio na edicao: mantem o que ja existe (nao apaga o numero sem querer).
     if (req.body.telefone !== undefined && String(req.body.telefone || "").replace(/\D/g, "")) {
       const telefone = requirePhone(req.body.telefone);

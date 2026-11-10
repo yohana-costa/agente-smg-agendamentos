@@ -156,11 +156,17 @@ function parseMeta(payload) {
     {
       const contacts = value.contacts || [];
       for (const message of value.messages || []) {
-        const text =
+        let text =
           [message?.text?.body, message?.button?.text, message?.interactive?.button_reply?.title, message?.interactive?.list_reply?.title, message?.image?.caption]
             .map(textOrEmpty)
             .find(Boolean) || "";
         const tipo = String(message?.type || "");
+        // Cartao de contato compartilhado chegava sem texto e era descartado: vira texto com nome e numero
+        if (!text && tipo === "contacts") {
+          text = `[Contato compartilhado] ${(message.contacts || [])
+            .map((c) => [c?.name?.formatted_name, ...(c?.phones || []).map((p) => p?.phone || p?.wa_id)].filter(Boolean).join(" "))
+            .join("; ")}`;
+        }
         const media =
           tipo === "audio" || tipo === "voice"
             ? { tipo: "AUDIO", id: String(message?.audio?.id || message?.voice?.id || "") }

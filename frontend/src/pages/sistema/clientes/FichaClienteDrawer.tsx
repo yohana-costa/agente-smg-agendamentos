@@ -17,12 +17,16 @@ function Indicador({ label, value, danger }: { label: string; value: ReactNode; 
   )
 }
 
+function sinalDoCadastro(v: boolean | null | undefined) {
+  return v === true ? 'SIM' : v === false ? 'NAO' : 'AUTO'
+}
+
 export default function FichaClienteDrawer({ clienteId, onClose, onSaved }: { clienteId: string; onClose: () => void; onSaved: () => void }) {
   const { usuario, podeVer } = useAuth()
   const podeEditar = usuario?.perfil === 'DONO' || usuario?.perfil === 'RECEPCAO'
   const { data, loading, error, reload } = useAsync(() => get<FichaCliente>(`/clientes/${encodeURIComponent(clienteId)}`), [clienteId])
 
-  const [form, setForm] = useState({ nome: '', telefone: '', email: '', observacoes: '' })
+  const [form, setForm] = useState({ nome: '', telefone: '', email: '', observacoes: '', exigeSinal: 'AUTO' })
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [saved, setSaved] = useState('')
@@ -34,6 +38,7 @@ export default function FichaClienteDrawer({ clienteId, onClose, onSaved }: { cl
       telefone: phone(data.cliente.telefone),
       email: data.cliente.email || '',
       observacoes: data.cliente.observacoes || '',
+      exigeSinal: sinalDoCadastro(data.cliente.exigeSinal),
     })
   }, [data])
 
@@ -47,7 +52,8 @@ export default function FichaClienteDrawer({ clienteId, onClose, onSaved }: { cl
     (form.nome !== (data.cliente.nome || '') ||
       form.telefone.replace(/\D/g, '') !== phone(data.cliente.telefone).replace(/\D/g, '') ||
       form.email !== (data.cliente.email || '') ||
-      form.observacoes !== (data.cliente.observacoes || ''))
+      form.observacoes !== (data.cliente.observacoes || '') ||
+      form.exigeSinal !== sinalDoCadastro(data.cliente.exigeSinal))
 
   async function salvar() {
     if (!data) return
@@ -59,7 +65,12 @@ export default function FichaClienteDrawer({ clienteId, onClose, onSaved }: { cl
     setSaveError('')
     setSaved('')
     try {
-      const body: Record<string, string> = { nome: form.nome.trim(), email: form.email.trim(), observacoes: form.observacoes }
+      const body: Record<string, string | boolean | null> = {
+        nome: form.nome.trim(),
+        email: form.email.trim(),
+        observacoes: form.observacoes,
+        exigeSinal: form.exigeSinal === 'AUTO' ? null : form.exigeSinal === 'SIM',
+      }
       if (form.telefone.replace(/\D/g, '') !== phone(data.cliente.telefone).replace(/\D/g, '')) body.telefone = form.telefone
       await patch(`/clientes/${data.cliente.id}`, body)
       setSaved('Dados do cliente atualizados.')
@@ -137,6 +148,17 @@ export default function FichaClienteDrawer({ clienteId, onClose, onSaved }: { cl
                     </Field>
                     <Field label="E-mail" className="full">
                       <input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                    </Field>
+                    <Field
+                      label="Sinal antecipado (site e WhatsApp)"
+                      className="full"
+                      hint={`${data.indicadores.noShows} falta(s). No automático, a partir de 2 faltas ela só marca pagando o sinal antes; se faltar, perde o sinal.`}
+                    >
+                      <select className="select" value={form.exigeSinal} onChange={(e) => setForm({ ...form, exigeSinal: e.target.value })}>
+                        <option value="AUTO">Automático (exige depois de 2 faltas)</option>
+                        <option value="SIM">Sempre exigir sinal</option>
+                        <option value="NAO">Nunca exigir sinal</option>
+                      </select>
                     </Field>
                     <Field label="Observações" className="full">
                       <textarea className="textarea" value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} placeholder="Preferências, alergias, informações importantes..." />

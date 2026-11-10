@@ -12,7 +12,7 @@ const { dispararAutomacao } = require("./automacao.service");
 const { enviarTexto } = require("./whatsapp/whatsapp.service");
 const { badRequest, notFound, conflict, createAppError } = require("../lib/errors");
 const { addMinutes, zonedParts, zonedToUtc, addDays, isDateStr, formatDateBr, formatTimeBr } = require("../lib/time");
-const { brl, log, textOrNull, toInt } = require("../lib/helpers");
+const { brl, log, textOrNull, toInt, normalizePhone } = require("../lib/helpers");
 
 const INCLUDE_COMPLETO = {
   cliente: true,
@@ -125,11 +125,22 @@ function aceitaPagarNoLocal(tenant, inicio) {
   return !(tenant.mesesPagamentoAntecipado || []).includes(month);
 }
 
-// Site e agente com pagamento obrigatorio (mes antecipado ou estabelecimento sem pagar no local):
-// cobra so o sinal (tenant.sinalPct). Painel (MANUAL) cobra o valor inteiro, como antes.
-function valorDaReserva(tenant, inicio, valorTotal, origem) {
+// Cliente que ja faltou: a partir de 2 no-shows o site e a IA so marcam com sinal pago antes
+// (pedido da Dra, 10/11/2026). Na ficha da cliente da para forcar sempre ou nunca.
+const FALTAS_PARA_SINAL = 2;
+async function clienteExigeSinal(tenantId, cliente) {
+  if (!cliente) return false;
+  if (cliente.exigeSinal === true) return true;
+  if (cliente.exigeSinal === false) return false;
+  const faltas = await prisma.agendamento.count({ where: { tenantId, clienteId: cliente.id, status: "NO_SHOW" } });
+  return faltas >= FALTAS_PARA_SINAL;
+}
+
+// Site e agente com pagamento obrigatorio (mes antecipado, estabelecimento sem pagar no local ou cliente
+// que exige sinal): cobra so o sinal (tenant.sinalPct). Painel (MANUAL) cobra o valor inteiro, como antes.
+function valorDaReserva(tenant, inicio, valorTotal, origem, { exigeSinal = false } = {}) {
   const pct = Math.min(100, Math.max(1, Number(tenant.sinalPct) || 100));
-  if (origem === "MANUAL" || pct >= 100 || aceitaPagarNoLocal(tenant, inicio)) return valorTotal;
+  if (origem === "MANUAL" || pct >= 100 || (aceitaPagarNoLocal(tenant, inicio) && !exigeSinal)) return valorTotal;
   return Math.max(1, Math.round((valorTotal * pct) / 100));
 }
 
@@ -180,7 +191,19 @@ async function criar(input) {
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant) throw notFound("Estabelecimento nao encontrado.");
   const inicioPedido = parseInicio(input, tenant.timezone);
-  const formaPagamento = origem === "MANUAL" ? input.pagamento || "LOCAL" : formaPagamentoCliente(tenant, inicioPedido, input.pagamento);
+  // cliente que ja faltou (2 no-shows ou marcada na ficha): pelo site/IA so com sinal
+  let exigeSinal = false;
+  if (origem !== "MANUAL") {
+    const telefonePrevio = normalizePhone(input.cliente?.telefone || "");
+    const clientePrevio = input.clienteId
+      ? await prisma.cliente.findFirst({ where: { id: input.clienteId, tenantId } })
+      : telefonePrevio
+        ? await prisma.cliente.findUnique({ where: { tenantId_telefone: { tenantId, telefone: telefonePrevio } } })
+        : null;
+    exigeSinal = await clienteExigeSinal(tenantId, clientePrevio);
+  }
+  if (exigeSinal && input.pagamento === "LOCAL") throw badRequest("Para esta cliente o horário só é confirmado com o sinal pago antes.");
+  const formaPagamento = origem === "MANUAL" ? input.pagamento || "LOCAL" : exigeSinal ? "ONLINE" : formaPagamentoCliente(tenant, inicioPedido, input.pagamento);
   if (!["LINK", "PIX", "LOCAL", "ONLINE"].includes(formaPagamento)) throw badRequest("Forma de pagamento invalida.");
   if (origem !== "MANUAL" && encaixe) throw badRequest("Encaixe so pode ser feito pelo estabelecimento.");
 
@@ -260,7 +283,7 @@ async function criar(input) {
       }
       const valorTotal = Math.max(0, valorServicos + valorProdutos - desconto);
       const precisaPagamentoOnline = formaPagamento !== "LOCAL" && valorTotal > 0;
-      const valorReserva = precisaPagamentoOnline ? valorDaReserva(tenant, horarios.inicio, valorTotal, origem) : 0;
+      const valorReserva = precisaPagamentoOnline ? valorDaReserva(tenant, horarios.inicio, valorTotal, origem, { exigeSinal }) : 0;
 
       const agendamento = await tx.agendamento.create({
         data: {
@@ -1132,6 +1155,7 @@ module.exports = {
   valorEmAberto,
   aceitaPagarNoLocal,
   valorDaReserva,
+  clienteExigeSinal,
   ajustar,
   receberPagamento,
   mudarParaPagarNoLocal,

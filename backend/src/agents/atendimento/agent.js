@@ -453,7 +453,14 @@ function buildTools(ctx) {
           sinalPct < 100
             ? `neste mes o horario e garantido com um SINAL de ${sinalPct}% do valor, pago online agora (Pix ou cartao, pelo link); o restante e pago no dia, na clinica. Nao existe reservar sem o sinal: explique isso antes de agendar`
             : "SOMENTE online e antecipado neste mes (nao existe pagar no local; explique isso antes de agendar)";
+        // cliente que ja faltou: so com sinal, em qualquer mes (nao comentar as faltas com ela)
+        const sinalDaCliente = ctx.pagamentoDisponivel && (await agendamentoService.clienteExigeSinal(tenantId, await clienteAtual()));
+        const textoClienteSinal =
+          sinalPct < 100
+            ? `para esta cliente o horario so e garantido com um SINAL de ${sinalPct}% pago online agora (pelo link); o restante e pago no dia. Explique com naturalidade, sem comentar faltas anteriores`
+            : "para esta cliente o horario so e garantido com o pagamento online antes (pelo link). Explique com naturalidade, sem comentar faltas anteriores";
         const pagamentoDoDia = (dia) => {
+          if (sinalDaCliente) return { pagamento: textoClienteSinal };
           if (!tenant.pagarNoLocalAtivo) return sinalPct < 100 && ctx.pagamentoDisponivel ? { pagamento: textoAntecipado } : {};
           return agendamentoService.aceitaPagarNoLocal(tenant, zonedToUtc(dia, "12:00", tenant.timezone))
             ? { pagamento: "a cliente escolhe: online agora ou no dia, na clinica" }
@@ -587,6 +594,9 @@ function buildTools(ctx) {
         const profissional_id = await idDeProfissional(entrada.profissional_id);
         const cliente = await clienteAtual();
         if (!cliente && !nome_cliente) return { ok: false, error: "Pergunte o nome do cliente antes de agendar." };
+        if (local && (await agendamentoService.clienteExigeSinal(tenantId, cliente))) {
+          return { ok: false, error: "Para esta cliente o horario so e confirmado com o sinal pago antes, pelo link. Explique com naturalidade (sem comentar faltas) e, se ela aceitar, chame de novo com pagamento online." };
+        }
         // Ja criou com link e a cliente escolheu pagar no local: converte a reserva dela em vez de
         // bater no proprio horario ("ja foi reservado").
         if (local && cliente) {
