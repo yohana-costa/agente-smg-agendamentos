@@ -160,7 +160,7 @@ function buildSystemPrompt({ tenant, config, cliente, pagamentoDisponivel = true
     ? [
         "## Link do site para agendar",
         linkSite,
-        "Envie o link so no momento certo: quando a cliente pedir, quando quiser agendar sozinha, quando ja tiver decidido o servico e for mais facil ela escolher o horario no site, ou quando a apresentacao configurada trouxer o link. Fora isso, nunca no inicio da conversa nem junto de toda resposta.",
+        "Envie o link so no momento certo: quando a cliente pedir, quando quiser agendar sozinha, quando ja tiver decidido o servico e for mais facil ela escolher o horario no site, quando oferecer horarios pela primeira vez na conversa (termine com algo como 'Se preferir, pode escolher e agendar direto pelo link: ...'; pedido da clinica), ou quando a apresentacao configurada trouxer o link. Fora isso, nunca no inicio da conversa nem junto de toda resposta.",
         linkJaEnviado
           ? "O link JA foi enviado nesta conversa: nao mande de novo, a menos que a cliente peca."
           : "O link ainda nao foi enviado nesta conversa.",
@@ -256,6 +256,16 @@ function horaPedidaNaMensagem(texto) {
   );
   const unicos = [...new Set(achados)];
   return unicos.length === 1 ? unicos[0] : undefined;
+}
+
+// "so a partir das 14 horas", "depois das 17h", "apos as 15:30": a IA pegava os 3 primeiros horarios
+// da tarde e dizia "depois das 14 nao tem vaga" (Maria Geralda, 10/11/2026, havia 16:00 livre).
+function aPartirDaMensagem(texto) {
+  const m = String(texto || "").match(/(?:a\s+partir\s+d[aeo]s?|depois\s+d[aeo]s?|ap[oó]s(?:\s+[aà]s)?|s[oó]\s+posso\s+(?:[aà]s|depois))\s*([01]?\d|2[0-3])(?:\s*(?:h|:|horas?)\s*([0-5]\d)?)?/i);
+  if (!m) return undefined;
+  // "a partir das 2" numa clinica e 14h
+  const hora = Number(m[1]) >= 1 && Number(m[1]) <= 7 ? Number(m[1]) + 12 : Number(m[1]);
+  return `${String(hora).padStart(2, "0")}:${m[2] || "00"}`;
 }
 
 function buildTools(ctx) {
@@ -403,6 +413,7 @@ function buildTools(ctx) {
         data: z.string().optional().describe("Data AAAA-MM-DD. Se o cliente citou um dia (ex.: sexta), passe a data tirada do calendario do prompt"),
         periodo: z.enum(["manha", "tarde", "noite"]).optional().describe("Se o cliente pediu um periodo: manha (antes das 12:00), tarde (12:00 a 17:59), noite (18:00 em diante)"),
         hora_desejada: z.string().optional().describe("HH:mm, se a cliente pediu um horario especifico (ex.: 14:00)"),
+        a_partir_de: z.string().optional().describe("HH:mm, se a cliente so pode a partir de / depois de um horario (ex.: 'so a partir das 14h' = 14:00)"),
       }),
       handler: async (entrada) => {
         // Remarcar: servicos vem do agendamento da cliente (a IA trocou a depilacao da Mariana por
@@ -416,13 +427,16 @@ function buildTools(ctx) {
         const servico_ids = remarcando ? remarcando.servicos.map((s) => s.servicoId) : await idsDeServicos(entrada.servico_ids);
         const profissional_id = remarcando && !entrada.profissional_id ? remarcando.profissionalId : await idDeProfissional(entrada.profissional_id);
         const { data, periodo } = entrada;
-        const hora_desejada = entrada.hora_desejada || horaPedidaNaMensagem(ctx.textoDaCliente);
+        const aPartirDe = entrada.a_partir_de || aPartirDaMensagem(ctx.textoDaCliente);
+        const hora_desejada = entrada.hora_desejada || (aPartirDe ? undefined : horaPedidaNaMensagem(ctx.textoDaCliente));
         // Horarios mais proximos do pedido primeiro; a lista volta curta para nao virar "textao".
         const minutos = (h) => Number(String(h).slice(0, 2)) * 60 + Number(String(h).slice(3, 5));
         const desejo = /^\d{2}:\d{2}$/.test(String(hora_desejada || "")) ? minutos(hora_desejada) : null;
         const ordenar = (lista) => (desejo === null ? lista : [...lista].sort((a, b) => Math.abs(minutos(a) - desejo) - Math.abs(minutos(b) - desejo)));
         // Filtro no sistema: so a regra no prompt nao bastou (pedido "sexta a tarde" voltava com 09:00).
+        const aPartirMin = /^d{2}:d{2}$/.test(String(aPartirDe || "")) ? Number(aPartirDe.slice(0, 2)) * 60 + Number(aPartirDe.slice(3, 5)) : null;
         const noPeriodo = (h) => {
+          if (aPartirMin !== null && Number(String(h).slice(0, 2)) * 60 + Number(String(h).slice(3, 5)) < aPartirMin) return false;
           if (!periodo) return true;
           const hora = Number(String(h).slice(0, 2));
           return periodo === "manha" ? hora < 12 : periodo === "tarde" ? hora >= 12 && hora < 18 : hora >= 18;
@@ -473,8 +487,8 @@ function buildTools(ctx) {
                 return {
                   id: p.profissionalId,
                   nome: p.nome,
-                  horarios: livres.slice(0, 3),
-                  outrosHorariosLivres: Math.max(0, livres.length - 3),
+                  horarios: livres.slice(0, 6),
+                  outrosHorariosLivres: Math.max(0, livres.length - 6),
                   // "tem os ultimos horarios?" voltava 13:00-14:00 sem dizer que eram os unicos (Gab, 10/11/2026)
                   ...(emOrdem.length > 3 ? { ultimosHorarios: emOrdem.slice(-3) } : {}),
                   ...(emOrdem.length && emOrdem.length <= 3 ? { unicosHorariosDoDia: true } : {}),
@@ -485,7 +499,8 @@ function buildTools(ctx) {
                 ? { semHorario: "A clinica ABRE neste dia; so nao tem horario livre para este pedido. Nao diga que esta fechada." }
                 : {}),
               orientacao:
-                "Ofereca no maximo 3 opcoes, sem lista longa. A lista e um resumo: antes de dizer que um horario pedido nao esta livre, consulte de novo com hora_desejada. Pedido de ultimo horario / mais tarde: ofereca `ultimosHorarios`. Horario pedido que nao tem: diga claramente que esse nao tem e quais estao livres; com `unicosHorariosDoDia`, diga que sao os unicos horarios livres do dia e deixe ela escolher." +
+                (aPartirMin !== null ? `So entram horarios a partir de ${aPartirDe}. ` : "") +
+                "Mostre os horarios livres numa linha so (ex.: 14:00, 14:30 e 16:00), sem lista longa. A lista e um resumo: antes de dizer que um horario pedido nao esta livre, consulte de novo com hora_desejada. Pedido de ultimo horario / mais tarde: ofereca `ultimosHorarios`. Horario pedido que nao tem: diga claramente que esse nao tem e quais estao livres; com `unicosHorariosDoDia`, diga que sao os unicos horarios livres do dia e deixe ela escolher." +
                 (remarcando ? ` Remarcando o agendamento de ${remarcando.servicos.map((s) => s.nome).join(" + ")}: fale desse servico e use reagendar_agendamento.` : ""),
             };
           }
