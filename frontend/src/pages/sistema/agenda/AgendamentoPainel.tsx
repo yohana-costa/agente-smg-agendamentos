@@ -97,10 +97,19 @@ export function AgendamentoPainel({
         </>
       )
     } else if (pendente) {
+      // Passou do horario: a cliente pode nao ter vindo. So com "Finalizar" a Dra nao conseguia
+      // marcar as faltas de sabado 07/11 no fechamento.
       botoes = (
-        <button className="btn btn-primary" onClick={() => setAcao('finalizar')}>
-          Finalizar
-        </button>
+        <>
+          {ag.status === 'CONFIRMADO' ? (
+            <button className="btn btn-danger" onClick={() => setAcao('noshow')}>
+              Não compareceu (no-show)
+            </button>
+          ) : null}
+          <button className="btn btn-primary" onClick={() => setAcao('finalizar')}>
+            Finalizar
+          </button>
+        </>
       )
     } else if (ag.status === 'CONFIRMADO') {
       botoes = (
