@@ -298,7 +298,9 @@ async function criar(input) {
 
   if (resultado.agendamento.status === "CONFIRMADO" && origem !== "MANUAL") {
     await baixarEstoqueAgendamento(resultado.agendamento.id);
-    await dispararAutomacao("CONFIRMACAO", resultado.agendamento.id);
+    // Pela IA a confirmacao ja vai na resposta dela ("Seu agendamento foi concluido com sucesso"):
+    // a automacao mandava uma segunda mensagem de confirmacao logo em seguida.
+    if (origem !== "AGENTE") await dispararAutomacao("CONFIRMACAO", resultado.agendamento.id);
     avisar(tenantId, resultado.agendamento.id, "NOVO_AGENDAMENTO");
   }
   if (formaPagamento === "PIX" && resultado.pagamento) {
@@ -715,10 +717,35 @@ async function mudarParaPagarNoLocal(tenantId, id) {
   await pagamentos.cancelarCobrancasPendentes({ tenant, agendamentoId: id });
   await prisma.agendamento.update({ where: { id }, data: { status: "CONFIRMADO", modoPagamento: "LOCAL", expiraEm: null } });
   await baixarEstoqueAgendamento(id);
-  await dispararAutomacao("CONFIRMACAO", id);
+  // so a IA chama esta funcao, e a confirmacao vai na resposta dela (mensagemFinal)
+  if (ag.origem !== "AGENTE") await dispararAutomacao("CONFIRMACAO", id);
   if (ag.origem !== "MANUAL") avisar(tenantId, id, "NOVO_AGENDAMENTO");
   log("agenda", "mudou_para_pagar_no_local", { tenantId, id });
   notificarAgenda(tenantId, id, "confirmado");
+  return obterSerializado(tenantId, id);
+}
+
+/**
+ * Cliente confirmou presenca no lembrete (botao Confirmar ou resposta para a IA). Marca tambem os
+ * outros horarios dela no mesmo dia (ex.: pe com uma profissional e sobrancelha com outra).
+ */
+async function confirmarPresenca(tenantId, id) {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  const ag = await obter(tenantId, id);
+  if (!["CONFIRMADO", "AGUARDANDO_PAGAMENTO"].includes(ag.status)) throw badRequest("Este agendamento nao esta mais marcado.");
+  const dia = zonedParts(ag.inicio, tenant.timezone).date;
+  const r = await prisma.agendamento.updateMany({
+    where: {
+      tenantId,
+      clienteId: ag.clienteId,
+      status: { in: ["CONFIRMADO", "AGUARDANDO_PAGAMENTO"] },
+      inicio: { gte: zonedToUtc(dia, "00:00", tenant.timezone), lt: zonedToUtc(addDays(dia, 1), "00:00", tenant.timezone) },
+      presencaConfirmadaEm: null,
+    },
+    data: { presencaConfirmadaEm: new Date() },
+  });
+  log("agenda", "presenca_confirmada", { tenantId, id, agendamentos: r.count });
+  notificarAgenda(tenantId, id, "presenca");
   return obterSerializado(tenantId, id);
 }
 
@@ -1079,4 +1106,5 @@ module.exports = {
   editarServicos,
   agendamentosParaPacote,
   aplicarPacote,
+  confirmarPresenca,
 };

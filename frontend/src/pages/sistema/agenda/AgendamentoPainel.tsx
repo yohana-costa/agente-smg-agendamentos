@@ -186,6 +186,7 @@ export function AgendamentoPainel({
                 <span className="muted">· {ORIGEM[ag.origem] || ag.origem}</span>
                 {ag.encaixe ? <span className="badge badge-warning">Encaixe</span> : null}
               </div>
+              {ag.presencaConfirmadaEm ? <div className="small success-text">✅ Cliente confirmou presença em {dateTimeBr(ag.presencaConfirmadaEm)}</div> : null}
               {podeEditar ? (
                 <div>
                   <button className="btn btn-sm" onClick={() => setAcao('editar')}>

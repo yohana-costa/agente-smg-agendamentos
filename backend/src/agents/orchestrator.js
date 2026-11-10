@@ -17,6 +17,8 @@ const atendimentoAgent = require("./atendimento/agent");
 const gateway = require("../services/pagamentos/gateway");
 const alertas = require("../services/alertas.service");
 const gestaoAgent = require("./gestao/agent");
+const agendamentoService = require("../services/agendamento.service");
+const { BOTAO_CONFIRMAR, BOTAO_CANCELAR } = require("../services/whatsapp/templates-cliente");
 
 const timers = new Map();
 const running = new Set();
@@ -599,8 +601,59 @@ async function processarEvento(tenant, config, evento) {
     await prisma.conversa.update({ where: { id: conversa.id }, data: { nomeContato: evento.profileName } });
   }
   await registrarMensagem(conversa, { autor: "CLIENTE", texto: evento.text, externalId: evento.messageId || null });
+  if (canal === "ATENDIMENTO" && (await respostaAoLembrete(tenant, conversa, evento.text))) return { conversaId: conversa.id, respostaAoLembrete: true };
   agendar(conversa.id);
   return { conversaId: conversa.id, canal };
+}
+
+// Resposta da cliente ao lembrete, tratada no sistema e nao pela IA (pedido da Dra, 10/11/2026: um
+// "confirmado" virou pergunta para a IA; nos testes a IA ora esquecia de registrar a presenca, ora
+// cancelava no "❌" sem perguntar).
+// - botao "✅ Confirmar": registra a presenca e responde na hora (true = IA nao responde);
+// - confirmacao escrita logo depois do lembrete ("confirmado", "ok", "👍"): registra e a IA responde;
+// - botao "❌ Cancelar": pergunta se e para cancelar mesmo; o "sim" segue para a IA cancelar.
+const CONFIRMACAO_ESCRITA = /^(✅|👍|ok\b|okay|sim\b|confirm|estarei|vou sim|pode confirmar|combinado|certo\b|t[aá] confirmad)/i;
+
+async function respostaAoLembrete(tenant, conversa, texto) {
+  const t = String(texto || "").trim();
+  const botaoConfirmar = t === BOTAO_CONFIRMAR;
+  const botaoCancelar = t === BOTAO_CANCELAR;
+  const escrita = !botaoConfirmar && !botaoCancelar && t.length <= 60 && CONFIRMACAO_ESCRITA.test(t);
+  if (!botaoConfirmar && !botaoCancelar && !escrita) return false;
+  if (escrita) {
+    // so vale logo depois do lembrete (a ultima fala antes da cliente e do sistema)
+    const anterior = await prisma.mensagem.findFirst({ where: { conversaId: conversa.id, autor: { not: "CLIENTE" } }, orderBy: { createdAt: "desc" }, select: { autor: true } });
+    if (anterior?.autor !== "SISTEMA") return false;
+  }
+  const clienteId =
+    conversa.clienteId || (await prisma.cliente.findUnique({ where: { tenantId_telefone: { tenantId: tenant.id, telefone: conversa.telefone } }, select: { id: true } }))?.id;
+  if (!clienteId) return false;
+  const lembretes = await prisma.automacaoEnvio.findMany({
+    where: { tenantId: tenant.id, tipo: "LEMBRETE_ATENDIMENTO", sucesso: true, enviadoEm: { gt: new Date(Date.now() - 3 * 86400000) } },
+    select: { referencia: true },
+  });
+  const ag = await prisma.agendamento.findFirst({
+    where: { tenantId: tenant.id, clienteId, id: { in: lembretes.map((l) => l.referencia) }, status: { in: ["CONFIRMADO", "AGUARDANDO_PAGAMENTO"] }, inicio: { gt: new Date(Date.now() - 2 * 3600000) } },
+    orderBy: { inicio: "asc" },
+    select: { id: true },
+  });
+  if (!ag) return false;
+  const serializado = await agendamentoService.obterSerializado(tenant.id, ag.id);
+  const quando = `${serializado.data.slice(8, 10)}/${serializado.data.slice(5, 7)} às ${serializado.hora}`;
+  if (botaoCancelar) {
+    const servicos = serializado.servicos.map((s) => s.nome).join(" + ");
+    await enviarTexto(tenant.id, conversa.telefone, `Quer mesmo cancelar o seu horário de ${servicos} do dia ${quando}? Se for isso, responda "sim". Se preferir, posso remarcar para outro dia.`, {
+      autor: "AGENTE",
+      clienteId,
+    });
+    log("agentes", "lembrete_cancelar_perguntou", { conversaId: conversa.id, agendamentoId: ag.id });
+    return true;
+  }
+  await agendamentoService.confirmarPresenca(tenant.id, ag.id);
+  log("agentes", "presenca_confirmada", { conversaId: conversa.id, agendamentoId: ag.id, botao: botaoConfirmar });
+  if (!botaoConfirmar) return false;
+  await enviarTexto(tenant.id, conversa.telefone, `Presença confirmada! ✅ Te esperamos dia ${quando}.`, { autor: "AGENTE", clienteId });
+  return true;
 }
 
 // Aceita o token da URL (?token=, gerado por estabelecimento), o segredo da Uazapi no header

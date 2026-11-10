@@ -115,6 +115,8 @@ export interface Agendamento {
   iniciadoEm: string | null
   finalizadoEm: string | null
   retornoSugerido: string | null
+  /** cliente confirmou presenca no lembrete (botao ou resposta) */
+  presencaConfirmadaEm?: string | null
   motivoCancelamento: string | null
   pendenteFinalizacao: boolean
   situacaoPagamento: 'AGUARDANDO' | 'PAGO_ONLINE' | 'PAGO_LOCAL' | 'PAGAR_NO_LOCAL' | 'SEM_COBRANCA' | 'COMANDA_ABERTA'

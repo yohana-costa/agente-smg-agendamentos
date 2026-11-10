@@ -486,6 +486,8 @@ model Agendamento {
   finalizadoEm   DateTime?
   duracaoValida  Boolean           @default(false) // entra na media de duracao real
   retornoSugerido DateTime?
+  // Cliente confirmou presenca no lembrete (botao Confirmar ou resposta para a IA)
+  presencaConfirmadaEm DateTime?
   canceladoEm    DateTime?
   motivoCancelamento String?
   createdAt      DateTime          @default(now())

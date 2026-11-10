@@ -281,6 +281,11 @@ function AgBlock({
               </span>
             ) : null}
             {ag.pendenteFinalizacao ? <AlertIcon title="Pendente de finalização" /> : null}
+            {ag.presencaConfirmadaEm && ['CONFIRMADO', 'AGUARDANDO_PAGAMENTO'].includes(ag.status) ? (
+              <span className="ag-tag" title="Cliente confirmou presença">
+                ✅
+              </span>
+            ) : null}
             <PagamentoIcon situacao={ag.situacaoPagamento} />
           </span>
         </div>

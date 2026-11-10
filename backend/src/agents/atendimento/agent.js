@@ -193,6 +193,16 @@ function resumoAgendamento(ag) {
   };
 }
 
+// Texto final do agendamento confirmado, no formato que a Dra pediu (10/11/2026): "Seu agendamento
+// foi concluido com sucesso para a data tal com a Ana Caroline, pagamento no local".
+const DIAS_EXTENSO = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
+function mensagemAgendamentoConcluido(ag) {
+  const dia = DIAS_EXTENSO[new Date(`${ag.data}T12:00:00Z`).getUTCDay()];
+  const quando = `${dia}, ${ag.data.slice(8, 10)}/${ag.data.slice(5, 7)}, às ${ag.hora}`;
+  const pagamento = ag.situacaoPagamento === "PAGO_ONLINE" ? "Pagamento já confirmado." : ag.modoPagamento === "LOCAL" ? "Pagamento no dia, na clínica." : "";
+  return `Seu agendamento foi concluído com sucesso! ✅ ${ag.servicos.map((s) => s.nome).join(" + ")} com ${ag.profissional?.nome || "a equipe"}, ${quando}. ${pagamento}`.trim();
+}
+
 function buildTools(ctx) {
   const { tenant, telefone } = ctx;
   const tenantId = tenant.id;
@@ -462,7 +472,12 @@ function buildTools(ctx) {
           });
           if (reserva) {
             const ag = await agendamentoService.mudarParaPagarNoLocal(tenantId, reserva.id);
-            return { ok: true, agendamento: resumoAgendamento(ag), observacao: "A reserva que estava aguardando pagamento virou pagamento no local e ja esta confirmada. O link anterior nao vale mais." };
+            return {
+              ok: true,
+              agendamento: resumoAgendamento(ag),
+              mensagemFinal: mensagemAgendamentoConcluido(ag),
+              observacao: "A reserva que estava aguardando pagamento virou pagamento no local e ja esta confirmada. O link anterior nao vale mais. Envie `mensagemFinal` exatamente como esta.",
+            };
           }
         }
         const ag = await agendamentoService.criar({
@@ -476,6 +491,14 @@ function buildTools(ctx) {
           ...(cliente ? { clienteId: cliente.id } : { cliente: { telefone, nome: nome_cliente } }),
         });
         ctx.cliente = await clienteAtual();
+        if (ag.status === "CONFIRMADO") {
+          return {
+            ok: true,
+            agendamento: resumoAgendamento(ag),
+            mensagemFinal: mensagemAgendamentoConcluido(ag),
+            orientacao: "Agendamento confirmado. Responda com `mensagemFinal` exatamente como esta, sem reescrever e sem acrescentar nada.",
+          };
+        }
         return { ok: true, agendamento: resumoAgendamento(ag), reservaMinutos: env.reservaMinutos };
       },
     },
@@ -495,12 +518,25 @@ function buildTools(ctx) {
       },
     },
     {
+      name: "confirmar_presenca",
+      description: "Registra que a cliente confirmou presenca no agendamento (resposta ao lembrete). Use o id de meus_agendamentos.",
+      schema: z.object({ agendamento_id: z.string() }),
+      handler: async ({ agendamento_id }) => {
+        const ag = await agendamentoDoCliente(agendamento_id);
+        if (!ag) return { ok: false, error: "Agendamento nao encontrado para esta cliente. Chame meus_agendamentos." };
+        await agendamentoService.confirmarPresenca(tenantId, agendamento_id);
+        return { ok: true, data: ag.data, hora: ag.hora, orientacao: "Presenca registrada. Agradeca e feche com o dia e a hora (regra 23.1)." };
+      },
+    },
+    {
       name: "consultar_regra_cancelamento",
       description: "Mostra qual regra de reembolso se aplica e o valor exato que sera devolvido se o agendamento for cancelado agora.",
       schema: z.object({ agendamento_id: z.string() }),
       handler: async ({ agendamento_id }) => {
         if (!(await agendamentoDoCliente(agendamento_id))) return { ok: false, error: "Agendamento nao encontrado para este cliente." };
         const r = await agendamentoService.simularCancelamento(tenantId, agendamento_id);
+        // Pagar no local: nada foi pago, entao nao existe reembolso para falar ("reembolso integral" confundia)
+        if (!r.valorPago) return { ok: true, regra: "Nada foi pago antecipado: cancelar nao tem custo e nao ha reembolso. Nao fale de reembolso.", valorPago: brl(0) };
         return { ok: true, regra: r.descricao, valorPago: brl(r.valorPago), valorDevolvido: brl(r.valor) };
       },
     },

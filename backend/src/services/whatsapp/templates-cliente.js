@@ -3,8 +3,26 @@
 // a mensagem aparecia no Atendimento sem ter chegado. Template aprovado chega.
 const LEMBRETE = "smg_lembrete_horario";
 const AVISO = "smg_aviso_agendamento";
+// Lembrete com botoes (pedido da Dra, 10/11/2026): a cliente toca em Confirmar ou Cancelar. O toque
+// chega no webhook como texto do botao. Enquanto a Meta nao aprovar, o lembrete sai pelo LEMBRETE.
+const LEMBRETE_CONFIRMAR = "smg_lembrete_confirmar";
+const BOTAO_CONFIRMAR = "✅ Confirmar";
+const BOTAO_CANCELAR = "❌ Cancelar";
 
 const MODELOS_CLIENTE = [
+  {
+    name: LEMBRETE_CONFIRMAR,
+    language: "pt_BR",
+    category: "UTILITY",
+    components: [
+      {
+        type: "BODY",
+        text: "Olá, {{1}}! Passando para lembrar do seu horário de {{2}} com {{3}} em {{4}} às {{5}}, no {{6}}. Você confirma a sua presença?",
+        example: { body_text: [["Ana", "Escova lisa", "Bárbara", "06/11/2026", "14:00", "Studio Bella"]] },
+      },
+      { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: BOTAO_CONFIRMAR }, { type: "QUICK_REPLY", text: BOTAO_CANCELAR }] },
+    ],
+  },
   {
     name: LEMBRETE,
     language: "pt_BR",
@@ -38,7 +56,8 @@ const limpar = (t) => String(t ?? "").replace(/\s+/g, " ").trim().slice(0, 900) 
 function templateDaAutomacao(tipo, vars, texto) {
   const cliente = vars.cliente || "tudo bem";
   if (tipo === "LEMBRETE_ATENDIMENTO") {
-    return { name: LEMBRETE, params: [cliente, vars.servicos || "atendimento", vars.profissional || "a equipe", vars.data, vars.hora, vars.estabelecimento].map(limpar) };
+    const params = [cliente, vars.servicos || "atendimento", vars.profissional || "a equipe", vars.data, vars.hora, vars.estabelecimento].map(limpar);
+    return { name: LEMBRETE_CONFIRMAR, params, alternativa: LEMBRETE };
   }
   if (["CONFIRMACAO", "AVISO_REAGENDAMENTO", "AVISO_CANCELAMENTO", "LEMBRETE_PAGAMENTO"].includes(tipo)) {
     return { name: AVISO, params: [cliente, vars.estabelecimento, texto].map(limpar) };
@@ -48,8 +67,11 @@ function templateDaAutomacao(tipo, vars, texto) {
 
 // Texto que a cliente recebe, para registrar no Atendimento igual ao que chegou.
 function textoDoTemplate(name, params) {
-  const corpo = MODELOS_CLIENTE.find((m) => m.name === name)?.components.find((c) => c.type === "BODY")?.text || "";
-  return corpo.replace(/\{\{(\d+)\}\}/g, (_, i) => params[Number(i) - 1] ?? "");
+  const modelo = MODELOS_CLIENTE.find((m) => m.name === name);
+  const corpo = modelo?.components.find((c) => c.type === "BODY")?.text || "";
+  const botoes = modelo?.components.find((c) => c.type === "BUTTONS")?.buttons || [];
+  const texto = corpo.replace(/\{\{(\d+)\}\}/g, (_, i) => params[Number(i) - 1] ?? "");
+  return botoes.length ? `${texto} [Botões: ${botoes.map((b) => b.text).join(" | ")}]` : texto;
 }
 
-module.exports = { MODELOS_CLIENTE, templateDaAutomacao, textoDoTemplate };
+module.exports = { MODELOS_CLIENTE, LEMBRETE_CONFIRMAR, BOTAO_CONFIRMAR, BOTAO_CANCELAR, templateDaAutomacao, textoDoTemplate };

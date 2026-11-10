@@ -90,22 +90,31 @@ async function carregarAgendamento(agendamentoId) {
 
 // WhatsApp oficial com a janela de 24h fechada: so template aprovado chega. Texto livre a Meta
 // aceita na hora e descarta depois, e a mensagem ficava no Atendimento como se tivesse ido.
+// O lembrete vai sempre por template no WhatsApp oficial (mesmo com a janela aberta): so o template
+// tem os botoes Confirmar / Cancelar. Template ainda nao aprovado: cai no lembrete antigo ou no texto.
 async function enviarAoCliente(tenantId, agendamento, tipo, vars, texto) {
   const telefone = normalizePhone(agendamento.cliente?.telefone);
   const config = await getAgenteConfig(tenantId);
-  if (!telefone || config.whatsappProvider !== "meta" || env.whatsappDryRun || (await janelaAberta(tenantId, config, telefone))) {
-    return enviarTexto(tenantId, agendamento.cliente?.telefone, texto, { autor: "SISTEMA", clienteId: agendamento.clienteId });
-  }
+  const sempreTemplate = tipo === "LEMBRETE_ATENDIMENTO";
+  const enviarComoTexto = () => enviarTexto(tenantId, agendamento.cliente?.telefone, texto, { autor: "SISTEMA", clienteId: agendamento.clienteId });
+  if (!telefone || config.whatsappProvider !== "meta" || env.whatsappDryRun) return enviarComoTexto();
+  const janela = await janelaAberta(tenantId, config, telefone);
+  if (janela && !sempreTemplate) return enviarComoTexto();
   const t = templateDaAutomacao(tipo, vars, texto);
-  if (!t) return { enviado: false, motivo: "fora_da_janela_24h_sem_template" };
-  try {
-    const r = await sendMetaTemplate(config.whatsappConfig, { to: telefone, name: t.name, params: t.params });
-    const conversa = await obterConversa(tenantId, telefone, "ATENDIMENTO", { clienteId: agendamento.clienteId });
-    await registrarMensagem(conversa, { autor: "SISTEMA", texto: textoDoTemplate(t.name, t.params), externalId: r.externalId });
-    return { enviado: true, externalId: r.externalId, template: t.name };
-  } catch (error) {
-    return { enviado: false, motivo: `template ${t.name}: ${error.message}` };
+  if (!t) return janela ? enviarComoTexto() : { enviado: false, motivo: "fora_da_janela_24h_sem_template" };
+  const erros = [];
+  for (const nome of [t.name, t.alternativa].filter(Boolean)) {
+    try {
+      const r = await sendMetaTemplate(config.whatsappConfig, { to: telefone, name: nome, params: t.params });
+      const conversa = await obterConversa(tenantId, telefone, "ATENDIMENTO", { clienteId: agendamento.clienteId });
+      await registrarMensagem(conversa, { autor: "SISTEMA", texto: textoDoTemplate(nome, t.params), externalId: r.externalId });
+      return { enviado: true, externalId: r.externalId, template: nome };
+    } catch (error) {
+      erros.push(`template ${nome}: ${error.message}`);
+    }
   }
+  if (janela) return enviarComoTexto();
+  return { enviado: false, motivo: erros.join(" | ") };
 }
 
 /**
