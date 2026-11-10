@@ -395,6 +395,8 @@ model Servico {
 model ServicoProfissional {
   servicoId      String
   profissionalId String
+  // Comissao desta profissional neste servico (%). Vazio = % do servico ou, sem ela, a da profissional.
+  comissaoPct    Int?
 
   servico      Servico      @relation(fields: [servicoId], references: [id], onDelete: Cascade)
   profissional Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)

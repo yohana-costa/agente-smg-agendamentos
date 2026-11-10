@@ -105,22 +105,30 @@ function RemuneracaoTab({ p, onSaved }: { p: ProfissionalDetalhe; onSaved: () =>
     metaValorMes: p.metaValorMes,
   })
   const [form, setForm] = useState(inicial)
+  // % por servico: texto vazio = padrao
+  const porServicoInicial = () => Object.fromEntries((p.comissoesServico || []).map((c) => [c.servicoId, c.comissaoPct === null ? '' : String(c.comissaoPct)]))
+  const [porServico, setPorServico] = useState<Record<string, string>>(porServicoInicial)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
 
   useEffect(() => {
     setForm(inicial())
+    setPorServico(porServicoInicial())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p])
 
   async function salvar() {
     if (form.comissaoPct < 0 || form.comissaoPct > 100) return setError('A comissão deve ficar entre 0% e 100%.')
+    if (Object.values(porServico).some((v) => v !== '' && (Number(v) < 0 || Number(v) > 100))) return setError('A comissão de cada serviço deve ficar entre 0% e 100%.')
     setSaving(true)
     setError('')
     setOk('')
     try {
-      await patch(`/equipe/${p.id}`, form)
+      await patch(`/equipe/${p.id}`, {
+        ...form,
+        comissoesServico: Object.entries(porServico).map(([servicoId, v]) => ({ servicoId, comissaoPct: v === '' ? null : Math.round(Number(v)) })),
+      })
       setOk('Remuneração e meta atualizadas.')
       onSaved()
     } catch (e) {
@@ -166,6 +174,29 @@ function RemuneracaoTab({ p, onSaved }: { p: ProfissionalDetalhe; onSaved: () =>
             )}
           </div>
         </Card>
+        {form.remuneracaoTipo === 'COMISSAO' && (p.comissoesServico || []).length ? (
+          <Card title="Comissão por serviço" subtitle="Deixe em branco para usar o padrão. Ex.: manicure 100% e cabelo 40%.">
+            <div className="stack-sm">
+              {(p.comissoesServico || []).map((c) => (
+                <div key={c.servicoId} className="row-between small" style={{ gap: 8 }}>
+                  <span>{c.nome}</span>
+                  <div className="input-group" style={{ maxWidth: 130 }}>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      max={100}
+                      placeholder={String(c.comissaoServico ?? form.comissaoPct)}
+                      value={porServico[c.servicoId] ?? ''}
+                      onChange={(e) => setPorServico({ ...porServico, [c.servicoId]: e.target.value === '' ? '' : String(Math.max(0, Math.min(100, Math.round(Number(e.target.value) || 0)))) })}
+                    />
+                    <span className="addon">%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ) : null}
         <Card title="Meta individual do mês" subtitle="Acompanhe o progresso em Resultados e na Visão Geral do profissional.">
           <div className="stack">
             <Field label="Quantidade de serviços">

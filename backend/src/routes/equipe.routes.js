@@ -134,12 +134,22 @@ router.get(
       include: {
         jornada: { orderBy: { diaSemana: "asc" } },
         ausencias: { where: { fim: { gte: new Date() } }, orderBy: { inicio: "asc" } },
-        servicos: { select: { servicoId: true } },
+        servicos: { select: { servicoId: true, comissaoPct: true, servico: { select: { nome: true, comissaoPct: true } } } },
         usuario: { select: { id: true, email: true, perfil: true, ativo: true } },
       },
     });
     if (!p) throw notFound("Profissional nao encontrado.");
-    return ok(res, { ...p, googleRefreshToken: undefined, servicoIds: p.servicos.map((s) => s.servicoId), servicos: undefined, googleConfigurado: google.configurado() });
+    return ok(res, {
+      ...p,
+      googleRefreshToken: undefined,
+      servicoIds: p.servicos.map((s) => s.servicoId),
+      // % desta profissional em cada servico (null = padrao) e a % propria do servico, se houver
+      comissoesServico: p.servicos
+        .map((s) => ({ servicoId: s.servicoId, nome: s.servico?.nome || "", comissaoPct: s.comissaoPct, comissaoServico: s.servico?.comissaoPct ?? null }))
+        .sort((a, b) => a.nome.localeCompare(b.nome)),
+      servicos: undefined,
+      googleConfigurado: google.configurado(),
+    });
   })
 );
 
@@ -162,9 +172,18 @@ router.patch(
     }
     const atualizado = await prisma.profissional.update({ where: { id: p.id }, data });
     if (Array.isArray(body.servicoIds)) {
+      // so tira e poe o que mudou: apagar tudo e recriar zerava a comissao por servico
       const servicos = await prisma.servico.findMany({ where: { tenantId: req.auth.tenantId, id: { in: body.servicoIds } }, select: { id: true } });
-      await prisma.servicoProfissional.deleteMany({ where: { profissionalId: p.id } });
-      await prisma.servicoProfissional.createMany({ data: servicos.map((s) => ({ servicoId: s.id, profissionalId: p.id })) });
+      const ids = servicos.map((s) => s.id);
+      await prisma.servicoProfissional.deleteMany({ where: { profissionalId: p.id, servicoId: { notIn: ids } } });
+      await prisma.servicoProfissional.createMany({ data: ids.map((servicoId) => ({ servicoId, profissionalId: p.id })), skipDuplicates: true });
+    }
+    // comissao por servico: [{ servicoId, comissaoPct: numero ou null (padrao) }], so o dono
+    if (Array.isArray(body.comissoesServico) && req.auth.perfil === "DONO") {
+      for (const c of body.comissoesServico) {
+        const pct = c?.comissaoPct === null || c?.comissaoPct === "" || c?.comissaoPct === undefined ? null : toInt(c.comissaoPct, 0, { min: 0, max: 100 });
+        await prisma.servicoProfissional.updateMany({ where: { profissionalId: p.id, servicoId: String(c?.servicoId || "") }, data: { comissaoPct: pct } });
+      }
     }
     if (body.ativo === false) await prisma.usuario.updateMany({ where: { profissionalId: p.id, perfil: "PROFISSIONAL" }, data: { ativo: false } });
     if (body.ativo === true) await prisma.usuario.updateMany({ where: { profissionalId: p.id, perfil: "PROFISSIONAL" }, data: { ativo: true } });

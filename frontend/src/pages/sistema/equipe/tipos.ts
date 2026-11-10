@@ -60,6 +60,8 @@ export interface ProfissionalDetalhe extends ProfissionalBase {
   jornada: JornadaDia[]
   ausencias: Ausencia[]
   servicoIds: string[]
+  /** % da profissional em cada servico que ela faz (null = padrao) */
+  comissoesServico?: Array<{ servicoId: string; nome: string; comissaoPct: number | null; comissaoServico: number | null }>
   googleConfigurado: boolean
 }
 

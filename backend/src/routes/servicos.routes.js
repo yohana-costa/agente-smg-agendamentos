@@ -79,8 +79,10 @@ router.get(
 async function vincular(tenantId, servicoId, { profissionalIds, produtoIds }) {
   if (Array.isArray(profissionalIds)) {
     const validos = await prisma.profissional.findMany({ where: { tenantId, id: { in: profissionalIds } }, select: { id: true } });
-    await prisma.servicoProfissional.deleteMany({ where: { servicoId } });
-    if (validos.length) await prisma.servicoProfissional.createMany({ data: validos.map((p) => ({ servicoId, profissionalId: p.id })) });
+    // so tira e poe o que mudou: apagar tudo e recriar zerava a comissao da profissional no servico
+    const ids = validos.map((p) => p.id);
+    await prisma.servicoProfissional.deleteMany({ where: { servicoId, profissionalId: { notIn: ids } } });
+    if (ids.length) await prisma.servicoProfissional.createMany({ data: ids.map((profissionalId) => ({ servicoId, profissionalId })), skipDuplicates: true });
   }
   if (Array.isArray(produtoIds)) {
     const validos = await prisma.produto.findMany({ where: { tenantId, id: { in: produtoIds } }, select: { id: true } });

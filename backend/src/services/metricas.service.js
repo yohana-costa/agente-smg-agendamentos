@@ -304,17 +304,19 @@ async function comissoes({ tenantId, from, to, start, end, profissionalId }) {
       valorServicos: true,
       desconto: true,
       valorProdutos: true,
-      servicos: { select: { id: true, preco: true, valorPacote: true, pacoteSaldoId: true, pacoteDevolvido: true, servico: { select: { comissaoPct: true } } } },
+      servicos: { select: { id: true, servicoId: true, preco: true, valorPacote: true, pacoteSaldoId: true, pacoteDevolvido: true, servico: { select: { comissaoPct: true } } } },
     },
   });
   const pagas = await prisma.comissaoPaga.findMany({ where: { tenantId, periodoInicio: from, periodoFim: to } });
+  const vinculos = await prisma.servicoProfissional.findMany({ where: { profissionalId: { in: profs.map((p) => p.id) }, comissaoPct: { not: null } } });
+  const pctVinculo = new Map(vinculos.map((v) => [`${v.servicoId}:${v.profissionalId}`, v.comissaoPct]));
   // valor fixo e mensal: proporcional aos dias do periodo em cada mes
   const fracaoMeses = daysBetween(from, to).reduce((acc, d) => acc + 1 / Number(monthRange(d).to.slice(8, 10)), 0);
   return profs
     .filter((p) => p.ativo || ags.some((a) => a.profissionalId === p.id))
     .map((p) => {
     const doProf = ags.filter((a) => a.profissionalId === p.id);
-    // Comissao item a item: a % do servico quando ele tem uma propria; senao a do profissional.
+    // Comissao item a item: a % da profissional naquele servico; senao a % do servico; senao a da profissional.
     // Servico pago com pacote usa o valor da sessao (o dinheiro entrou na venda do pacote).
     let baseServicos = 0;
     let comissao = 0;
@@ -322,7 +324,7 @@ async function comissoes({ tenantId, from, to, start, end, profissionalId }) {
       const fator = a.valorServicos > 0 ? Math.max(0, a.valorServicos - a.desconto) / a.valorServicos : 0;
       for (const it of a.servicos) {
         const base = it.pacoteSaldoId && !it.pacoteDevolvido ? it.valorPacote : it.preco * fator;
-        const pct = it.servico?.comissaoPct ?? p.comissaoPct;
+        const pct = pctVinculo.get(`${it.servicoId}:${p.id}`) ?? it.servico?.comissaoPct ?? p.comissaoPct;
         baseServicos += base;
         comissao += (base * pct) / 100;
       }
