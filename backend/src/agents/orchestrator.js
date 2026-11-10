@@ -29,17 +29,14 @@ function pausaAtiva(conversa) {
   return conversa.status !== "ATIVO" && conversa.pausadoAte && new Date(conversa.pausadoAte) > new Date();
 }
 
-// Equipe conversando com a cliente: a IA fica de fora pelo menos 30 min a partir da ultima mensagem
-// da equipe. Com o tempo de retorno da Studio Bella (5 min) a IA voltou no meio da conversa da Dra
-// com a Duda e respondeu de novo perguntas que a Dra ja tinha tratado (10/11/2026).
-const PAUSA_MINIMA_HUMANO_MIN = 30;
-
-async function pausar(conversa, { escalonar = false, motivo = null, humano = false } = {}) {
+// Pausa depois da mensagem da equipe = tempo de retorno configurado (Studio Bella: 5 min, decisao do
+// Iury em 10/11/2026). Quem segura a IA quando a cliente responde a equipe e o AVISO_RESPONDENDO_EQUIPE.
+async function pausar(conversa, { escalonar = false, motivo = null } = {}) {
   const config = await getAgenteConfig(conversa.tenantId);
   const minutos = config.tempoRetornoMin || 15;
   const data = {
     status: escalonar ? "ESCALONADO" : "PAUSADO",
-    pausadoAte: addMinutes(new Date(), humano ? Math.max(minutos, PAUSA_MINIMA_HUMANO_MIN) : minutos),
+    pausadoAte: addMinutes(new Date(), minutos),
   };
   if (escalonar) Object.assign(data, { escalonamentoPendente: true, motivoEscalonamento: motivo, escalonadoEm: new Date() });
   const atualizada = await prisma.conversa.update({ where: { id: conversa.id }, data });
@@ -83,7 +80,7 @@ async function enviarMensagemHumano(conversaId, texto, usuarioNome) {
   const conversa = await prisma.conversa.findUnique({ where: { id: conversaId } });
   if (!conversa) throw Object.assign(new Error("Conversa nao encontrada."), { statusCode: 404 });
   const r = await enviarTexto(conversa.tenantId, conversa.telefone, texto, { autor: "HUMANO", canal: conversa.canal });
-  await pausar(conversa, { humano: true });
+  await pausar(conversa);
   await prisma.conversa.update({ where: { id: conversaId }, data: { escalonamentoPendente: false } });
   log("agentes", "mensagem_humano", { conversaId, usuarioNome, enviado: r.enviado });
   return r;
@@ -634,7 +631,7 @@ async function processarEvento(tenant, config, evento) {
     }
     // humano respondeu direto pelo WhatsApp: registra e pausa o agente nesta conversa
     await registrarMensagem(conversa, { autor: "HUMANO", texto: evento.text, externalId: evento.messageId || null });
-    await pausar(conversa, { humano: true });
+    await pausar(conversa);
     await prisma.conversa.update({ where: { id: conversa.id }, data: { escalonamentoPendente: false } });
     return { pausado: true };
   }
