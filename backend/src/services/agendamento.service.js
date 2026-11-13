@@ -837,26 +837,37 @@ async function registrarSinal(tenantId, id, { valor, forma } = {}) {
  * valor cobrado (fez mais ou menos do que a tabela). O valor fica como ajusteValor para nao
  * mexer nos precos dos servicos; o que falta pagar sai da diferenca para o que ja foi pago.
  */
-async function ajustar(tenantId, id, { horaFim, valorTotal, encaixe = false } = {}) {
+async function ajustar(tenantId, id, { data: novaData, hora, horaFim, valorTotal, encaixe = false, avisar = true } = {}) {
   const ag = await obter(tenantId, id);
   if (!["AGUARDANDO_PAGAMENTO", "CONFIRMADO", "EM_ATENDIMENTO"].includes(ag.status)) {
     throw badRequest("Só dá para editar agendamento em aberto (não finalizado nem cancelado).");
   }
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   const data = {};
+  const vazio = (v) => v === undefined || v === null || v === "";
 
-  if (horaFim !== undefined && horaFim !== null && horaFim !== "") {
-    if (!/^\d{2}:\d{2}$/.test(String(horaFim))) throw badRequest("Horário de término inválido.");
-    const fim = zonedToUtc(zonedParts(ag.inicio, tenant.timezone).date, String(horaFim), tenant.timezone);
-    if (fim <= ag.inicio) throw badRequest("O término precisa ser depois do início.");
-    const intervaloMs = ag.fimIntervalo.getTime() - ag.fim.getTime();
-    const fimIntervalo = new Date(fim.getTime() + intervaloMs);
-    if (fimIntervalo > ag.fimIntervalo && !encaixe) {
-      const choques = await sobreposicoes(prisma, { tenantId, profissionalId: ag.profissionalId, inicio: ag.inicio, fimIntervalo, excluirId: id });
-      if (choques.length) throw conflict("O novo término passa por cima de outro agendamento. Confirme o encaixe para continuar.", { requerEncaixe: true });
-    }
-    data.fim = fim;
-    data.fimIntervalo = fimIntervalo;
+  // Dia e horario (pedido da Dra, 13/11/2026: passar a cliente das 10h para as 9h ou para outro dia
+  // direto no editar; antes so mudava o termino). Sem termino informado, mantem a duracao.
+  const atual = zonedParts(ag.inicio, tenant.timezone);
+  const dia = vazio(novaData) ? atual.date : String(novaData);
+  if (!isDateStr(dia)) throw badRequest("Data inválida.");
+  if (!vazio(hora) && !/^\d{2}:\d{2}$/.test(String(hora))) throw badRequest("Horário de início inválido.");
+  if (!vazio(horaFim) && !/^\d{2}:\d{2}$/.test(String(horaFim))) throw badRequest("Horário de término inválido.");
+  const inicio = vazio(hora) && dia === atual.date ? ag.inicio : zonedToUtc(dia, vazio(hora) ? atual.time : String(hora), tenant.timezone);
+  const fim = vazio(horaFim) ? new Date(inicio.getTime() + (ag.fim.getTime() - ag.inicio.getTime())) : zonedToUtc(dia, String(horaFim), tenant.timezone);
+  if (fim <= inicio) throw badRequest("O término precisa ser depois do início.");
+  const fimIntervalo = new Date(fim.getTime() + (ag.fimIntervalo.getTime() - ag.fim.getTime()));
+  const moveu = inicio.getTime() !== ag.inicio.getTime();
+  const mudouHorario = moveu || fim.getTime() !== ag.fim.getTime();
+  if (mudouHorario && !encaixe && (moveu || fimIntervalo > ag.fimIntervalo)) {
+    const conflitos = await disponibilidade.verificarConflitos({ tenantId, profissionalId: ag.profissionalId, inicio, fimIntervalo, excluirAgendamentoId: id });
+    if (conflitos.length) throw conflict("O novo horário tem conflitos. Confirme o encaixe para continuar.", { conflitos, requerEncaixe: true });
+  }
+  if (mudouHorario) {
+    Object.assign(data, { inicio, fim, fimIntervalo });
+    if (encaixe) data.encaixe = true;
+    // a presenca confirmada era do horario antigo
+    if (moveu) data.presencaConfirmadaEm = null;
   }
 
   if (valorTotal !== undefined && valorTotal !== null && valorTotal !== "") {
@@ -874,9 +885,22 @@ async function ajustar(tenantId, id, { horaFim, valorTotal, encaixe = false } = 
   }
 
   if (!Object.keys(data).length) throw badRequest("Nada para alterar.");
-  await prisma.agendamento.update({ where: { id }, data });
-  log("agenda", "ajustado", { tenantId, id, de: { fim: ag.fim, valorTotal: ag.valorTotal }, para: data });
-  notificarAgenda(tenantId, id, "ajustado");
+  await prisma.$transaction(async (tx) => {
+    await lockProfissional(tx, ag.profissionalId);
+    if (mudouHorario && !encaixe) {
+      const choques = await sobreposicoes(tx, { tenantId, profissionalId: ag.profissionalId, inicio, fimIntervalo, excluirId: id });
+      if (choques.length && (moveu || fimIntervalo > ag.fimIntervalo)) throw conflict("Este horário acabou de ser ocupado. Confirme o encaixe para continuar.", { requerEncaixe: true });
+    }
+    await tx.agendamento.update({ where: { id }, data });
+  });
+  log("agenda", "ajustado", { tenantId, id, de: { inicio: ag.inicio, fim: ag.fim, valorTotal: ag.valorTotal }, para: data });
+  if (moveu) {
+    if (avisar) await dispararAutomacao("AVISO_REAGENDAMENTO", id, { referencia: `${id}:${inicio.toISOString()}` });
+    await prisma.automacaoEnvio.deleteMany({ where: { tipo: "LEMBRETE_ATENDIMENTO", referencia: { in: [id, `${id}:2`] } } });
+    notificarAgenda(tenantId, id, "reagendado");
+  } else {
+    notificarAgenda(tenantId, id, "ajustado");
+  }
   return obterSerializado(tenantId, id);
 }
 
@@ -1113,7 +1137,7 @@ async function reagendar(tenantId, id, input) {
     }
     await tx.agendamento.update({
       where: { id },
-      data: { inicio: horarios.inicio, fim: horarios.fim, fimIntervalo: horarios.fimIntervalo, profissionalId, encaixe: Boolean(encaixe) || ag.encaixe },
+      data: { inicio: horarios.inicio, fim: horarios.fim, fimIntervalo: horarios.fimIntervalo, profissionalId, encaixe: Boolean(encaixe) || ag.encaixe, presencaConfirmadaEm: null },
     });
   });
 

@@ -295,16 +295,72 @@ async function segmentosClientes(tenantId, { profissionalId } = {}) {
 
 // ---------- financeiro ----------
 
-async function comissoes({ tenantId, from, to, start, end, profissionalId }) {
+// Base e % de cada servico realizado, na ordem: correcao manual do item > % da profissional naquele
+// servico > % do servico > % da profissional. Tudo calculado na hora: mudar uma % ou o valor do
+// atendimento muda a comissao do periodo inteiro (pedido da Dra, 13/11/2026).
+function itensComissao(a, p, pctVinculo) {
+  const doPacote = (it) => Boolean(it.pacoteSaldoId && !it.pacoteDevolvido);
+  // O valor cobrado nos servicos (com desconto e ajuste de valor do atendimento) dividido pelo preco de cada um.
+  const precoPacote = a.servicos.filter(doPacote).reduce((acc, it) => acc + it.preco, 0);
+  const precoAvulso = a.servicos.filter((it) => !doPacote(it)).reduce((acc, it) => acc + it.preco, 0);
+  const cobrado = Math.max(0, a.valorTotal - a.valorProdutos - precoPacote);
+  const fator = precoAvulso > 0 ? cobrado / precoAvulso : 0;
+  return a.servicos.map((it) => {
+    const calculada = doPacote(it) ? it.valorPacote : Math.round(it.preco * fator);
+    const base = it.comissaoBase ?? calculada;
+    const vinculo = pctVinculo.get(`${it.servicoId}:${p.id}`);
+    const [pct, origemPct] =
+      it.comissaoPct !== null && it.comissaoPct !== undefined
+        ? [it.comissaoPct, "MANUAL"]
+        : vinculo !== undefined && vinculo !== null
+          ? [vinculo, "PROFISSIONAL_SERVICO"]
+          : it.servico?.comissaoPct !== null && it.servico?.comissaoPct !== undefined
+            ? [it.servico.comissaoPct, "SERVICO"]
+            : [p.comissaoPct, "PROFISSIONAL"];
+    return {
+      id: it.id,
+      agendamentoId: a.id,
+      inicio: a.inicio,
+      cliente: a.cliente?.nome || "",
+      servico: it.nome,
+      pacote: doPacote(it),
+      baseCalculada: calculada,
+      base,
+      baseManual: it.comissaoBase !== null && it.comissaoBase !== undefined,
+      pct,
+      origemPct,
+      comissao: (base * pct) / 100,
+    };
+  });
+}
+
+async function comissoes({ tenantId, from, to, start, end, profissionalId, detalhe = false }) {
   const profs = await prisma.profissional.findMany({ where: { tenantId, ...(profissionalId ? { id: profissionalId } : {}) }, orderBy: { nome: "asc" } });
   const ags = await prisma.agendamento.findMany({
     where: { tenantId, status: "CONCLUIDO", inicio: { gte: start, lt: end }, ...(profissionalId ? { profissionalId } : {}) },
+    orderBy: { inicio: "asc" },
     select: {
+      id: true,
+      inicio: true,
       profissionalId: true,
-      valorServicos: true,
-      desconto: true,
+      valorTotal: true,
       valorProdutos: true,
-      servicos: { select: { id: true, servicoId: true, preco: true, valorPacote: true, pacoteSaldoId: true, pacoteDevolvido: true, servico: { select: { comissaoPct: true } } } },
+      cliente: { select: { nome: true } },
+      servicos: {
+        orderBy: { ordem: "asc" },
+        select: {
+          id: true,
+          servicoId: true,
+          nome: true,
+          preco: true,
+          valorPacote: true,
+          pacoteSaldoId: true,
+          pacoteDevolvido: true,
+          comissaoPct: true,
+          comissaoBase: true,
+          servico: { select: { comissaoPct: true } },
+        },
+      },
     },
   });
   const pagas = await prisma.comissaoPaga.findMany({ where: { tenantId, periodoInicio: from, periodoFim: to } });
@@ -315,36 +371,29 @@ async function comissoes({ tenantId, from, to, start, end, profissionalId }) {
   return profs
     .filter((p) => p.ativo || ags.some((a) => a.profissionalId === p.id))
     .map((p) => {
-    const doProf = ags.filter((a) => a.profissionalId === p.id);
-    // Comissao item a item: a % da profissional naquele servico; senao a % do servico; senao a da profissional.
-    // Servico pago com pacote usa o valor da sessao (o dinheiro entrou na venda do pacote).
-    let baseServicos = 0;
-    let comissao = 0;
-    for (const a of doProf) {
-      const fator = a.valorServicos > 0 ? Math.max(0, a.valorServicos - a.desconto) / a.valorServicos : 0;
-      for (const it of a.servicos) {
-        const base = it.pacoteSaldoId && !it.pacoteDevolvido ? it.valorPacote : it.preco * fator;
-        const pct = pctVinculo.get(`${it.servicoId}:${p.id}`) ?? it.servico?.comissaoPct ?? p.comissaoPct;
-        baseServicos += base;
-        comissao += (base * pct) / 100;
-      }
-    }
-    baseServicos = Math.round(baseServicos);
-    const valor = p.remuneracaoTipo === "FIXO" ? Math.round(p.valorFixo * fracaoMeses) : Math.round(comissao);
-    const paga = pagas.find((x) => x.profissionalId === p.id);
-    return {
-      profissionalId: p.id,
-      nome: p.nome,
-      remuneracaoTipo: p.remuneracaoTipo,
-      comissaoPct: p.comissaoPct,
-      valorFixo: p.valorFixo,
-      servicosRealizados: doProf.reduce((acc, a) => acc + a.servicos.length, 0),
-      baseServicos,
-      valor,
-      paga: Boolean(paga),
-      pagaEm: paga?.pagoEm || null,
-    };
-  });
+      const itens = ags.filter((a) => a.profissionalId === p.id).flatMap((a) => itensComissao(a, p, pctVinculo));
+      const baseServicos = Math.round(itens.reduce((acc, it) => acc + it.base, 0));
+      const comissao = itens.reduce((acc, it) => acc + it.comissao, 0);
+      const valor = p.remuneracaoTipo === "FIXO" ? Math.round(p.valorFixo * fracaoMeses) : Math.round(comissao);
+      const paga = pagas.find((x) => x.profissionalId === p.id);
+      const pcts = [...new Set(itens.map((it) => it.pct))];
+      return {
+        profissionalId: p.id,
+        nome: p.nome,
+        remuneracaoTipo: p.remuneracaoTipo,
+        comissaoPct: p.comissaoPct,
+        // % que de fato entraram na conta (cada servico pode ter a sua)
+        pctsAplicadas: pcts.sort((x, y) => x - y),
+        valorFixo: p.valorFixo,
+        servicosRealizados: itens.length,
+        baseServicos,
+        valor,
+        paga: Boolean(paga),
+        pagaEm: paga?.pagoEm || null,
+        valorPago: paga?.valor ?? null,
+        ...(detalhe ? { itens: itens.map((it) => ({ ...it, comissao: Math.round(it.comissao) })) } : {}),
+      };
+    });
 }
 
 async function resultadoFinanceiro({ tenantId, from, to, start, end }) {

@@ -36,7 +36,9 @@ export default function ResultadosTab({ profissionalId, mostraFinanceiro, mostra
                 hint={
                   rem.remuneracaoTipo === 'FIXO'
                     ? `${brl(rem.valorFixo)} por mês`
-                    : `${rem.comissaoPct}% sobre ${brl(rem.baseServicos)} em serviços`
+                    : (rem.pctsAplicadas || []).length > 1
+                      ? `Comissão de cada serviço sobre ${brl(rem.baseServicos)} em serviços`
+                      : `${(rem.pctsAplicadas || [])[0] ?? rem.comissaoPct}% sobre ${brl(rem.baseServicos)} em serviços`
                 }
               />
             ) : null}

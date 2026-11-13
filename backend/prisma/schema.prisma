@@ -530,6 +530,9 @@ model AgendamentoServico {
   pacoteSaldoId   String?
   valorPacote     Int     @default(0)
   pacoteDevolvido Boolean @default(false)
+  // Correcao manual na tela de comissoes (Financeiro > Comissoes > Ver servicos); null = calculado.
+  comissaoPct     Int?
+  comissaoBase    Int?
 
   agendamento Agendamento @relation(fields: [agendamentoId], references: [id], onDelete: Cascade)
   servico     Servico     @relation(fields: [servicoId], references: [id])

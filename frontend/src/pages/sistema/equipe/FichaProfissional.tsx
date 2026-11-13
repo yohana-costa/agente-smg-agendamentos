@@ -152,7 +152,7 @@ function RemuneracaoTab({ p, onSaved }: { p: ProfissionalDetalhe; onSaved: () =>
               onChange={(remuneracaoTipo) => setForm({ ...form, remuneracaoTipo })}
             />
             {form.remuneracaoTipo === 'COMISSAO' ? (
-              <Field label="Percentual sobre os serviços realizados" hint="Calculado sobre o valor dos serviços concluídos, já descontados os descontos.">
+              <Field label="Percentual sobre os serviços realizados" hint="Vale para os serviços que não têm % própria (aqui embaixo ou no cadastro do serviço). Calculado sobre o valor cobrado dos serviços concluídos.">
                 <div className="input-group" style={{ maxWidth: 180 }}>
                   <input
                     className="input"

@@ -47,12 +47,33 @@ export interface Comissao {
   nome: string
   remuneracaoTipo: 'COMISSAO' | 'FIXO'
   comissaoPct: number
+  /** % que de fato entraram na conta (cada servico pode ter a sua) */
+  pctsAplicadas: number[]
   valorFixo: number
   servicosRealizados: number
   baseServicos: number
   valor: number
   paga: boolean
   pagaEm: string | null
+  valorPago: number | null
+  itens?: ComissaoItem[]
+}
+
+export type OrigemPct = 'MANUAL' | 'PROFISSIONAL_SERVICO' | 'SERVICO' | 'PROFISSIONAL'
+
+export interface ComissaoItem {
+  id: string
+  agendamentoId: string
+  inicio: string
+  cliente: string
+  servico: string
+  pacote: boolean
+  baseCalculada: number
+  base: number
+  baseManual: boolean
+  pct: number
+  origemPct: OrigemPct
+  comissao: number
 }
 
 export interface Resultado {

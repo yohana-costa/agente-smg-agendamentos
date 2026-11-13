@@ -145,6 +145,35 @@ router.get(
   })
 );
 
+// Servicos realizados que entram na comissao da profissional no periodo, um por um (com a % e a base usadas).
+router.get(
+  "/comissoes/:profissionalId/servicos",
+  completo,
+  asyncHandler(async (req, res) => {
+    const p = parsePeriod(req.query, req.auth.tenant.timezone);
+    const [c] = await metricas.comissoes({ tenantId: req.auth.tenantId, ...p, profissionalId: req.params.profissionalId, detalhe: true });
+    if (!c) throw notFound("Profissional nao encontrado.");
+    return ok(res, { periodo: { de: p.from, ate: p.to }, comissao: c });
+  })
+);
+
+// Corrige a % ou o valor de um servico realizado so para a comissao (null volta ao calculado).
+router.patch(
+  "/comissoes/itens/:id",
+  completo,
+  asyncHandler(async (req, res) => {
+    const item = await prisma.agendamentoServico.findFirst({ where: { id: req.params.id, agendamento: { tenantId: req.auth.tenantId } }, select: { id: true } });
+    if (!item) throw notFound("Servico nao encontrado.");
+    const b = req.body || {};
+    const vazio = (v) => v === null || v === "";
+    const data = {};
+    if (b.comissaoPct !== undefined) data.comissaoPct = vazio(b.comissaoPct) ? null : toInt(b.comissaoPct, 0, { min: 0, max: 100 });
+    if (b.comissaoBase !== undefined) data.comissaoBase = vazio(b.comissaoBase) ? null : toInt(b.comissaoBase, 0, { min: 0 });
+    if (!Object.keys(data).length) throw badRequest("Nada para alterar.");
+    return ok(res, await prisma.agendamentoServico.update({ where: { id: item.id }, data, select: { id: true, comissaoPct: true, comissaoBase: true } }));
+  })
+);
+
 router.post(
   "/comissoes/pagar",
   completo,

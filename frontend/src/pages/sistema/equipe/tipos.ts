@@ -79,6 +79,7 @@ export interface Resultados {
   remuneracao?: {
     remuneracaoTipo: 'COMISSAO' | 'FIXO'
     comissaoPct: number
+    pctsAplicadas?: number[]
     valorFixo: number
     servicosRealizados: number
     baseServicos: number

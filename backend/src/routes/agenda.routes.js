@@ -334,7 +334,14 @@ router.patch(
   acao((req) => {
     if (req.auth.perfil === "PROFISSIONAL") throw forbidden("Apenas dono e recepcao podem editar o agendamento.");
     const b = req.body || {};
-    return agendamentoService.ajustar(req.auth.tenantId, req.params.id, { horaFim: b.horaFim, valorTotal: b.valorTotal, encaixe: toBool(b.encaixe) });
+    return agendamentoService.ajustar(req.auth.tenantId, req.params.id, {
+      data: b.data,
+      hora: b.hora,
+      horaFim: b.horaFim,
+      valorTotal: b.valorTotal,
+      encaixe: toBool(b.encaixe),
+      avisar: b.avisar === undefined ? true : toBool(b.avisar),
+    });
   })
 );
 // sinal recebido fora do sistema: desconta no Finalizar

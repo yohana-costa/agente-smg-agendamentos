@@ -5,12 +5,12 @@ import { brl, countdown, dateLong, dateTimeBr, duration, FORMA_PAGAMENTO, ORIGEM
 import { useAsync, useCountdown } from '../../../lib/hooks'
 import { useAuth } from '../../../lib/auth'
 import { ConfirmModal, Drawer, ErrorBanner, Field, Loading, Modal, MoneyInput, Segmented, StatusBadge, SuccessBanner } from '../../../components/ui'
-import type { Agendamento, PacoteCliente, Pagamento } from '../../../types'
+import type { Agendamento, Conflito, PacoteCliente, Pagamento } from '../../../types'
 import { AdicionarProdutoModal, CancelarModal, FinalizarModal, PagamentoLocalModal, ReagendarModal } from './AcoesModais'
 import { AlertIcon, PagamentoIcon } from './icons'
 import type { NovoPrefill, PreviaFinalizacao, Referencias } from './types'
 import { pagamentoPixPendente } from './utils'
-import { PixBox } from './Widgets'
+import { ConflitosAviso, PixBox } from './Widgets'
 
 type Acao = 'cancelar' | 'noshow' | 'reagendar' | 'finalizar' | 'pagLocal' | 'produto' | 'excluir' | 'editar' | 'servicos' | 'receber' | 'sinal' | null
 
@@ -199,7 +199,7 @@ export function AgendamentoPainel({
               {podeEditar ? (
                 <div>
                   <button className="btn btn-sm" onClick={() => setAcao('editar')}>
-                    ✎ Editar horário de término e valor
+                    ✎ Editar dia, horário e valor
                   </button>
                   {['CONFIRMADO', 'EM_ATENDIMENTO'].includes(ag.status) && emAberto(ag) > 0 ? (
                     <button className="btn btn-sm" style={{ marginLeft: 6 }} onClick={() => setAcao('sinal')}>
@@ -551,29 +551,58 @@ function ReceberModal({ ag, onClose, onDone }: { ag: Agendamento; onClose: () =>
   )
 }
 
-/** Ajuste manual: termino (ex.: reservou 13h-15h e vai ate 14h) e valor (fez mais ou menos que a tabela). */
+const minutosDe = (h: string) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5))
+const horaDe = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+
+/**
+ * Ajuste manual: dia e horario (ex.: passar das 10h para as 9h), termino (reservou 13h-15h e vai ate 14h)
+ * e valor (fez mais ou menos que a tabela).
+ */
 function EditarModal({ ag, onClose, onDone }: { ag: Agendamento; onClose: () => void; onDone: (msg: string) => void }) {
+  const [data, setData] = useState(ag.data)
+  const [hora, setHora] = useState(ag.hora)
   const [horaFim, setHoraFim] = useState(ag.horaFim)
   const [valor, setValor] = useState(ag.valorTotal)
+  const [avisar, setAvisar] = useState(true)
   const [encaixe, setEncaixe] = useState(false)
+  const [conflitos, setConflitos] = useState<Conflito[] | null>(null)
   const [pedirEncaixe, setPedirEncaixe] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
   const valorBloqueado = ag.pagamentos.some((p) => p.status === 'PENDENTE' && p.modo === 'ONLINE')
+  const moveu = data !== ag.data || hora !== ag.hora
+
+  function mudarInicio(nova: string) {
+    // o termino anda junto, mantendo a duracao
+    if (/^\d{2}:\d{2}$/.test(nova) && /^\d{2}:\d{2}$/.test(hora) && /^\d{2}:\d{2}$/.test(horaFim)) {
+      setHoraFim(horaDe(minutosDe(horaFim) + minutosDe(nova) - minutosDe(hora)))
+    }
+    setHora(nova)
+    setConflitos(null)
+    setPedirEncaixe(false)
+  }
 
   async function salvar() {
+    if (!data || !/^\d{2}:\d{2}$/.test(hora) || !/^\d{2}:\d{2}$/.test(horaFim)) return setErro('Preencha a data, o início e o término.')
+    if (minutosDe(horaFim) <= minutosDe(hora)) return setErro('O término precisa ser depois do início.')
     const body: Record<string, unknown> = {}
-    if (horaFim && horaFim !== ag.horaFim) body.horaFim = horaFim
+    if (data !== ag.data) body.data = data
+    if (hora !== ag.hora) body.hora = hora
+    if (moveu || horaFim !== ag.horaFim) body.horaFim = horaFim
     if (!valorBloqueado && valor !== ag.valorTotal) body.valorTotal = valor
     if (!Object.keys(body).length) return onClose()
+    if (moveu) body.avisar = avisar
     if (encaixe) body.encaixe = true
     setSalvando(true)
     setErro('')
     try {
       await patch(`/agenda/agendamentos/${ag.id}/ajustar`, body)
-      onDone('Agendamento atualizado.')
+      onDone(moveu ? `Agendamento passado para ${dateLong(data)} às ${hora}.${avisar ? ' A cliente foi avisada pelo WhatsApp.' : ''}` : 'Agendamento atualizado.')
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409 && e.details?.requerEncaixe) setPedirEncaixe(true)
+      if (e instanceof ApiError && e.status === 409 && e.details?.requerEncaixe) {
+        setPedirEncaixe(true)
+        setConflitos(Array.isArray(e.details.conflitos) ? (e.details.conflitos as Conflito[]) : null)
+      }
       setErro(errorMessage(e))
     } finally {
       setSalvando(false)
@@ -597,9 +626,42 @@ function EditarModal({ ag, onClose, onDone }: { ag: Agendamento; onClose: () => 
     >
       <div className="stack">
         <ErrorBanner message={erro} />
-        <Field label="Horário de término" hint={`Início às ${ag.hora}. Diminua para liberar o resto do horário na agenda.`}>
-          <input className="input" type="time" step={300} value={horaFim} onChange={(e) => setHoraFim(e.target.value)} />
-        </Field>
+        <div className="form-grid">
+          <Field label="Dia">
+            <input
+              className="input"
+              type="date"
+              value={data}
+              onChange={(e) => {
+                setData(e.target.value)
+                setConflitos(null)
+                setPedirEncaixe(false)
+              }}
+            />
+          </Field>
+          <Field label="Início">
+            <input className="input" type="time" step={300} value={hora} onChange={(e) => mudarInicio(e.target.value)} />
+          </Field>
+          <Field label="Término" hint="Diminua para liberar o resto do horário na agenda.">
+            <input
+              className="input"
+              type="time"
+              step={300}
+              value={horaFim}
+              onChange={(e) => {
+                setHoraFim(e.target.value)
+                setPedirEncaixe(false)
+              }}
+            />
+          </Field>
+        </div>
+        {moveu ? (
+          <label className="row small" style={{ gap: 8, flexWrap: 'nowrap' }}>
+            <input type="checkbox" checked={avisar} onChange={(e) => setAvisar(e.target.checked)} />
+            Avisar a cliente do novo dia e horário pelo WhatsApp
+          </label>
+        ) : null}
+        {conflitos?.length ? <ConflitosAviso conflitos={conflitos} /> : null}
         {pedirEncaixe ? (
           <label className="row small" style={{ gap: 8 }}>
             <input type="checkbox" checked={encaixe} onChange={(e) => setEncaixe(e.target.checked)} />
