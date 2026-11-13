@@ -6,6 +6,7 @@ const prisma = require("../../lib/prisma");
 const env = require("../../config/env");
 const disponibilidade = require("../../services/disponibilidade.service");
 const agendamentoService = require("../../services/agendamento.service");
+const { textoConfirmacao } = require("../../services/automacao.service");
 const { encontrarOuCriarCliente } = require("../../services/cliente.service");
 const { zonedParts, zonedToUtc, todayStr, WEEKDAY_NAMES, formatDateBr } = require("../../lib/time");
 const { brl } = require("../../lib/helpers");
@@ -246,7 +247,11 @@ function resumoAgendamento(ag) {
 // Texto final do agendamento confirmado, no formato que a Dra pediu (10/11/2026): "Seu agendamento
 // foi concluido com sucesso para a data tal com a Ana Caroline, pagamento no local".
 const DIAS_EXTENSO = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
-function mensagemAgendamentoConcluido(ag) {
+// Com a automacao "Confirmacao do agendamento" ligada, a IA manda o texto dela (o mesmo do painel e
+// do site; na Studio Bella com tolerancia de 10 min e prazo de 24h para desmarcar, pedido de 13/11/2026).
+async function mensagemAgendamentoConcluido(ag) {
+  const automacao = await textoConfirmacao(ag.id);
+  if (automacao) return automacao;
   const dia = DIAS_EXTENSO[new Date(`${ag.data}T12:00:00Z`).getUTCDay()];
   const quando = `${dia}, ${ag.data.slice(8, 10)}/${ag.data.slice(5, 7)}, às ${ag.hora}`;
   const pagamento = ag.situacaoPagamento === "PAGO_ONLINE" ? "Pagamento já confirmado." : ag.modoPagamento === "LOCAL" ? "Pagamento no dia, na clínica." : "";
@@ -608,7 +613,7 @@ function buildTools(ctx) {
             return {
               ok: true,
               agendamento: resumoAgendamento(ag),
-              mensagemFinal: mensagemAgendamentoConcluido(ag),
+              mensagemFinal: await mensagemAgendamentoConcluido(ag),
               observacao: "A reserva que estava aguardando pagamento virou pagamento no local e ja esta confirmada. O link anterior nao vale mais. Envie `mensagemFinal` exatamente como esta.",
             };
           }
@@ -639,7 +644,7 @@ function buildTools(ctx) {
           return {
             ok: true,
             agendamento: resumoAgendamento(ag),
-            mensagemFinal: mensagemAgendamentoConcluido(ag),
+            mensagemFinal: await mensagemAgendamentoConcluido(ag),
             orientacao: "Agendamento confirmado. Responda com `mensagemFinal` exatamente como esta, sem reescrever e sem acrescentar nada.",
           };
         }

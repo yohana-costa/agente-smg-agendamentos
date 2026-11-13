@@ -19,7 +19,7 @@ let ultimaAssinatura = 0;
 let ultimaConsultaPagamentos = 0;
 
 async function automacoesAtivas(tipo) {
-  return prisma.automacao.findMany({ where: { tipo, ativo: true }, select: { tenantId: true, disparoMin: true } });
+  return prisma.automacao.findMany({ where: { tipo, ativo: true }, select: { tenantId: true, disparoMin: true, segundoDisparoMin: true } });
 }
 
 async function jaEnviadas(tipo, ids) {
@@ -39,14 +39,32 @@ async function lembretesPagamento(agora) {
   }
 }
 
+// Dois lembretes (pedido da Dra, 13/11/2026: 1 dia antes e 40 min antes, os dois com Confirmar/Cancelar).
+// O 1o usa referencia = id e o 2o `${id}:2`. Horario marcado ja dentro da janela de um lembrete
+// (ex.: hoje para amanha cedo) nao recebe esse lembrete: a confirmacao do agendamento acabou de sair.
 async function lembretesAtendimento(agora) {
   for (const a of await automacoesAtivas("LEMBRETE_ATENDIMENTO")) {
-    const ags = await prisma.agendamento.findMany({
-      where: { tenantId: a.tenantId, status: "CONFIRMADO", inicio: { gt: agora, lte: addMinutes(agora, a.disparoMin) } },
-      select: { id: true },
-    });
-    const enviados = await jaEnviadas("LEMBRETE_ATENDIMENTO", ags.map((x) => x.id));
-    for (const ag of ags.filter((x) => !enviados.has(x.id))) await dispararAutomacao("LEMBRETE_ATENDIMENTO", ag.id);
+    const confirmacao = await prisma.automacao.findUnique({ where: { tenantId_tipo: { tenantId: a.tenantId, tipo: "CONFIRMACAO" } }, select: { ativo: true } });
+    const etapas = [{ min: a.disparoMin, sufixo: "" }];
+    if (a.segundoDisparoMin) etapas.push({ min: a.segundoDisparoMin, sufixo: ":2" });
+    for (const { min, sufixo } of etapas) {
+      const ags = await prisma.agendamento.findMany({
+        where: { tenantId: a.tenantId, status: "CONFIRMADO", inicio: { gt: agora, lte: addMinutes(agora, min) } },
+        select: { id: true, inicio: true, createdAt: true, origem: true },
+      });
+      const enviados = await jaEnviadas("LEMBRETE_ATENDIMENTO", ags.map((x) => `${x.id}${sufixo}`));
+      for (const ag of ags.filter((x) => !enviados.has(`${x.id}${sufixo}`))) {
+        const referencia = `${ag.id}${sufixo}`;
+        const recebeuConfirmacao = confirmacao?.ativo || ag.origem === "AGENTE";
+        if (recebeuConfirmacao && ag.createdAt > addMinutes(ag.inicio, -min)) {
+          await prisma.automacaoEnvio
+            .create({ data: { tenantId: a.tenantId, tipo: "LEMBRETE_ATENDIMENTO", referencia, sucesso: false, erro: "marcado_dentro_da_janela" } })
+            .catch(() => {});
+          continue;
+        }
+        await dispararAutomacao("LEMBRETE_ATENDIMENTO", ag.id, { referencia });
+      }
+    }
   }
 }
 

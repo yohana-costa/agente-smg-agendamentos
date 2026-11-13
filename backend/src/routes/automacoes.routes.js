@@ -26,6 +26,9 @@ router.patch(
     const data = {};
     if (b.ativo !== undefined) data.ativo = toBool(b.ativo);
     if (b.disparoMin !== undefined) data.disparoMin = toInt(b.disparoMin, 0, { min: 0, max: 60 * 24 * 60 });
+    if (b.segundoDisparoMin !== undefined && tipo === "LEMBRETE_ATENDIMENTO") {
+      data.segundoDisparoMin = b.segundoDisparoMin === null || b.segundoDisparoMin === "" ? null : toInt(b.segundoDisparoMin, 0, { min: 1, max: 60 * 24 * 60 });
+    }
     if (b.texto !== undefined) data.texto = requireText(b.texto, "Texto");
     await garantirAutomacoes(req.auth.tenantId);
     return ok(res, await prisma.automacao.update({ where: { tenantId_tipo: { tenantId: req.auth.tenantId, tipo } }, data }));

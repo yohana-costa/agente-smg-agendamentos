@@ -657,15 +657,19 @@ async function processarEvento(tenant, config, evento) {
 // - botao "Confirmar": registra a presenca e responde na hora (true = IA nao responde);
 // - confirmacao escrita logo depois do lembrete ("confirmado", "ok", "👍"): registra e a IA responde;
 // - botao "Cancelar": pergunta se e para cancelar mesmo; o "sim" segue para a IA cancelar.
-const CONFIRMACAO_ESCRITA = /^(✅|👍|ok\b|okay|sim\b|confirm|estarei|vou sim|pode confirmar|combinado|certo\b|t[aá] confirmad)/i;
+// - "❌" (ou "nao vou") logo depois do lembrete vale como o botao Cancelar (pedido da Dra, 13/11/2026).
+const CONFIRMACAO_ESCRITA = /^(✅|✔|☑|👍|ok\b|okay|sim\b|confirm|estarei|vou sim|pode confirmar|combinado|certo\b|t[aá] confirmad)/i;
+const CANCELAMENTO_ESCRITO = /^(❌|✖|❎|n[aã]o vou\b|n[aã]o posso ir|n[aã]o consigo ir)/i;
 
 async function respostaAoLembrete(tenant, conversa, texto) {
   const t = String(texto || "").trim();
+  const curta = t.length <= 60;
+  const cancelaEscrito = t !== BOTAO_CANCELAR && curta && CANCELAMENTO_ESCRITO.test(t);
   const botaoConfirmar = t === BOTAO_CONFIRMAR;
-  const botaoCancelar = t === BOTAO_CANCELAR;
-  const escrita = !botaoConfirmar && !botaoCancelar && t.length <= 60 && CONFIRMACAO_ESCRITA.test(t);
+  const botaoCancelar = t === BOTAO_CANCELAR || cancelaEscrito;
+  const escrita = !botaoConfirmar && !botaoCancelar && curta && CONFIRMACAO_ESCRITA.test(t);
   if (!botaoConfirmar && !botaoCancelar && !escrita) return false;
-  if (escrita) {
+  if (escrita || cancelaEscrito) {
     // so vale logo depois do lembrete (a ultima fala antes da cliente e do sistema)
     const anterior = await prisma.mensagem.findFirst({ where: { conversaId: conversa.id, autor: { not: "CLIENTE" } }, orderBy: { createdAt: "desc" }, select: { autor: true } });
     if (anterior?.autor !== "SISTEMA") return false;
@@ -678,7 +682,7 @@ async function respostaAoLembrete(tenant, conversa, texto) {
     select: { referencia: true },
   });
   const ag = await prisma.agendamento.findFirst({
-    where: { tenantId: tenant.id, clienteId, id: { in: lembretes.map((l) => l.referencia) }, status: { in: ["CONFIRMADO", "AGUARDANDO_PAGAMENTO"] }, inicio: { gt: new Date(Date.now() - 2 * 3600000) } },
+    where: { tenantId: tenant.id, clienteId, id: { in: lembretes.map((l) => l.referencia.split(":")[0]) }, status: { in: ["CONFIRMADO", "AGUARDANDO_PAGAMENTO"] }, inicio: { gt: new Date(Date.now() - 2 * 3600000) } },
     orderBy: { inicio: "asc" },
     select: { id: true },
   });

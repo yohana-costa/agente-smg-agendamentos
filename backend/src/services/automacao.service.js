@@ -61,6 +61,15 @@ function renderTemplate(texto, vars) {
   return String(texto || "").replace(/\{(\w+)\}/g, (match, key) => (vars[key] !== undefined && vars[key] !== null ? String(vars[key]) : ""));
 }
 
+// Frase do pagamento para a confirmacao ({pagamento}): o que ja foi pago e o que fica para o dia.
+function textoPagamento(agendamento) {
+  const pago = (agendamento.pagamentos || []).filter((p) => p.status === "APROVADO").reduce((t, p) => t + (p.valorBruto || 0), 0);
+  if (pago > 0 && pago >= agendamento.valorTotal) return "Pagamento já confirmado.";
+  if (pago > 0) return `Sinal de ${brl(pago)} já pago; o restante é no dia do atendimento.`;
+  if (agendamento.modoPagamento === "LOCAL") return "Pagamento no dia do atendimento.";
+  return "";
+}
+
 function varsAgendamento(agendamento, tenant, extras = {}) {
   const tz = tenant.timezone;
   const pagamentoPendente = (agendamento.pagamentos || []).find((p) => p.status === "PENDENTE");
@@ -77,6 +86,7 @@ function varsAgendamento(agendamento, tenant, extras = {}) {
     link_pagamento: pagamentoPendente?.linkPagamento || "",
     link_site: `${env.publicAppUrl}/s/${tenant.slug}`,
     minutos_restantes: agendamento.expiraEm ? Math.max(0, Math.ceil((new Date(agendamento.expiraEm) - Date.now()) / 60000)) : "",
+    pagamento: textoPagamento(agendamento),
     reembolso: "",
     ...extras,
   };
@@ -104,7 +114,7 @@ async function enviarAoCliente(tenantId, agendamento, tipo, vars, texto) {
   const t = templateDaAutomacao(tipo, vars, texto);
   if (!t) return janela ? enviarComoTexto() : { enviado: false, motivo: "fora_da_janela_24h_sem_template" };
   const erros = [];
-  for (const nome of [t.name, t.alternativa].filter(Boolean)) {
+  for (const nome of [t.name, ...(t.alternativas || [])]) {
     try {
       const r = await sendMetaTemplate(config.whatsappConfig, { to: telefone, name: nome, params: t.params });
       const conversa = await obterConversa(tenantId, telefone, "ATENDIMENTO", { clienteId: agendamento.clienteId });
@@ -116,6 +126,27 @@ async function enviarAoCliente(tenantId, agendamento, tipo, vars, texto) {
   }
   if (janela) return enviarComoTexto();
   return { enviado: false, motivo: erros.join(" | ") };
+}
+
+function textoFinal(tipo, modelo, agendamento, vars) {
+  const texto = renderTemplate(modelo, vars).replace(/[ \t]+\n/g, "\n").replace(/[ \t]{2,}/g, " ").trim();
+  // Pagar no local: a confirmacao sai sem pagamento, entao o "Pagamento confirmado!" do texto padrao mentiria.
+  if (tipo === "CONFIRMACAO" && agendamento.modoPagamento === "LOCAL" && /^\s*Pagamento confirmado/i.test(texto)) {
+    return texto.replace(/^\s*Pagamento confirmado!?\s*/i, "Agendamento confirmado! ") + " O pagamento é feito no dia, na clínica.";
+  }
+  return texto;
+}
+
+/**
+ * Texto da confirmacao do agendamento (automacao CONFIRMACAO), ou null se estiver desligada.
+ * A IA responde com ele quando marca: a cliente recebe a mesma mensagem do painel e do site.
+ */
+async function textoConfirmacao(agendamentoId) {
+  const agendamento = await carregarAgendamento(agendamentoId);
+  if (!agendamento) return null;
+  const automacao = await prisma.automacao.findUnique({ where: { tenantId_tipo: { tenantId: agendamento.tenantId, tipo: "CONFIRMACAO" } } });
+  if (!automacao?.ativo) return null;
+  return textoFinal("CONFIRMACAO", automacao.texto, agendamento, varsAgendamento(agendamento, agendamento.tenant));
 }
 
 /**
@@ -139,11 +170,7 @@ async function dispararAutomacao(tipo, agendamentoId, { extras = {}, referencia,
   }
 
   const vars = varsAgendamento(agendamento, tenant, extras);
-  let texto = renderTemplate(automacao.texto, vars);
-  // Pagar no local: a confirmacao sai sem pagamento, entao o "Pagamento confirmado!" do texto padrao mentiria.
-  if (tipo === "CONFIRMACAO" && agendamento.modoPagamento === "LOCAL") {
-    texto = texto.replace(/^\s*Pagamento confirmado!?\s*/i, "Agendamento confirmado! ").replace(/\s*$/, " O pagamento é feito no dia, na clínica.");
-  }
+  const texto = textoFinal(tipo, automacao.texto, agendamento, vars);
   const r = await enviarAoCliente(tenant.id, agendamento, tipo, vars, texto);
   if (unicaVez && !r.enviado) {
     await prisma.automacaoEnvio.updateMany({ where: { tipo, referencia: ref }, data: { sucesso: false, erro: r.motivo || null } });
@@ -152,4 +179,4 @@ async function dispararAutomacao(tipo, agendamentoId, { extras = {}, referencia,
   return true;
 }
 
-module.exports = { AUTOMACOES_PADRAO, garantirAutomacoes, renderTemplate, varsAgendamento, dispararAutomacao };
+module.exports = { AUTOMACOES_PADRAO, garantirAutomacoes, renderTemplate, varsAgendamento, dispararAutomacao, textoConfirmacao };

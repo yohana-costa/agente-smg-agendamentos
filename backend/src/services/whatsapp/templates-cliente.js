@@ -6,10 +6,26 @@ const AVISO = "smg_aviso_agendamento";
 // Lembrete com botoes (pedido da Dra, 10/11/2026): a cliente toca em Confirmar ou Cancelar. O toque
 // chega no webhook como texto do botao. Enquanto a Meta nao aprovar, o lembrete sai pelo LEMBRETE.
 const LEMBRETE_CONFIRMAR = "smg_lembrete_confirmar";
+// Mesmo lembrete com o ✅ e o ❌ no texto (pedido da Dra, 13/11/2026): emoji so cabe no corpo.
+// Enquanto a Meta nao aprovar, sai o LEMBRETE_CONFIRMAR.
+const LEMBRETE_CONFIRMAR_EMOJI = "smg_lembrete_confirmar_emoji";
 const BOTAO_CONFIRMAR = "Confirmar"; // a Meta nao aceita emoji em botao
 const BOTAO_CANCELAR = "Cancelar";
 
 const MODELOS_CLIENTE = [
+  {
+    name: LEMBRETE_CONFIRMAR_EMOJI,
+    language: "pt_BR",
+    category: "UTILITY",
+    components: [
+      {
+        type: "BODY",
+        text: "Olá, {{1}}! Passando para lembrar do seu horário de {{2}} com {{3}} em {{4}} às {{5}}, no {{6}}. Você confirma a sua presença? ✅ Toque em Confirmar se você vem. ❌ Toque em Cancelar se não puder vir.",
+        example: { body_text: [["Ana", "Escova lisa", "Bárbara", "06/11/2026", "14:00", "Studio Bella"]] },
+      },
+      { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: BOTAO_CONFIRMAR }, { type: "QUICK_REPLY", text: BOTAO_CANCELAR }] },
+    ],
+  },
   {
     name: LEMBRETE_CONFIRMAR,
     language: "pt_BR",
@@ -57,7 +73,7 @@ function templateDaAutomacao(tipo, vars, texto) {
   const cliente = vars.cliente || "tudo bem";
   if (tipo === "LEMBRETE_ATENDIMENTO") {
     const params = [cliente, vars.servicos || "atendimento", vars.profissional || "a equipe", vars.data, vars.hora, vars.estabelecimento].map(limpar);
-    return { name: LEMBRETE_CONFIRMAR, params, alternativa: LEMBRETE };
+    return { name: LEMBRETE_CONFIRMAR_EMOJI, params, alternativas: [LEMBRETE_CONFIRMAR, LEMBRETE] };
   }
   if (["CONFIRMACAO", "AVISO_REAGENDAMENTO", "AVISO_CANCELAMENTO", "LEMBRETE_PAGAMENTO"].includes(tipo)) {
     return { name: AVISO, params: [cliente, vars.estabelecimento, texto].map(limpar) };

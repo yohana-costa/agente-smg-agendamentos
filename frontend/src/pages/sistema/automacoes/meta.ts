@@ -5,6 +5,8 @@ export interface Automacao {
   tipo: TipoAutomacao
   ativo: boolean
   disparoMin: number
+  /** so no LEMBRETE_ATENDIMENTO: segundo lembrete, em minutos antes */
+  segundoDisparoMin?: number | null
   texto: string
 }
 
@@ -38,6 +40,7 @@ const BASE: Placeholder[] = [
 
 const LINK_PAGAMENTO: Placeholder = { key: 'link_pagamento', label: 'Link de pagamento', exemplo: 'https://pagar.exemplo.com/abc123' }
 const MINUTOS: Placeholder = { key: 'minutos_restantes', label: 'Minutos até o cancelamento automático', exemplo: '10' }
+const PAGAMENTO: Placeholder = { key: 'pagamento', label: 'Situação do pagamento (vazio quando não há o que dizer)', exemplo: 'Pagamento no dia do atendimento.' }
 const REEMBOLSO: Placeholder = { key: 'reembolso', label: 'Texto do reembolso (vazio quando não há)', exemplo: 'Valor a ser devolvido: R$ 120,00.' }
 
 export const META: Record<TipoAutomacao, { titulo: string; descricao: string; modo: ModoDisparo; icone: string; placeholders: Placeholder[] }> = {
@@ -50,14 +53,14 @@ export const META: Record<TipoAutomacao, { titulo: string; descricao: string; mo
   },
   CONFIRMACAO: {
     titulo: 'Confirmação do agendamento',
-    descricao: 'Enviada assim que o pagamento é confirmado e o agendamento passa para Confirmado.',
+    descricao: 'Enviada quando o agendamento fica confirmado: marcado pelo painel, pelo site ou pelo agente, ou quando o pagamento é aprovado. O agente responde com este mesmo texto.',
     modo: 'imediato',
     icone: '✅',
-    placeholders: BASE,
+    placeholders: [...BASE, PAGAMENTO],
   },
   LEMBRETE_ATENDIMENTO: {
     titulo: 'Lembrete antes do atendimento',
-    descricao: 'Lembra o cliente do horário marcado. Enviado apenas para agendamentos confirmados.',
+    descricao: 'Lembra o cliente do horário marcado e pede para confirmar ou cancelar. Enviado apenas para agendamentos confirmados. Pode ter um segundo lembrete mais perto do horário.',
     modo: 'antes',
     icone: '🔔',
     placeholders: BASE,
@@ -92,4 +95,4 @@ export const META: Record<TipoAutomacao, { titulo: string; descricao: string; mo
   },
 }
 
-export const TODOS_PLACEHOLDERS = new Set([...BASE, LINK_PAGAMENTO, MINUTOS, REEMBOLSO].map((p) => p.key))
+export const TODOS_PLACEHOLDERS = new Set([...BASE, LINK_PAGAMENTO, MINUTOS, PAGAMENTO, REEMBOLSO].map((p) => p.key))

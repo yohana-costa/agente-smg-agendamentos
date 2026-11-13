@@ -376,6 +376,11 @@ async function criar(input) {
   }
   if (resultado.agendamento.status === "CONFIRMADO" && origem === "MANUAL") {
     await baixarEstoqueAgendamento(resultado.agendamento.id);
+    // Marcado pela equipe tambem recebe a confirmacao (pedido da Dra, 13/11/2026: horario, tolerancia
+    // e prazo para desmarcar). Nao vai para quem esta sendo atendida agora nem na remarcacao.
+    if (!ignorarAgendamentoId && new Date(resultado.agendamento.inicio) > addMinutes(new Date(), 15)) {
+      await dispararAutomacao("CONFIRMACAO", resultado.agendamento.id);
+    }
   }
 
   notificarAgenda(tenantId, resultado.agendamento.id, "criado");
@@ -1114,7 +1119,7 @@ async function reagendar(tenantId, id, input) {
 
   await dispararAutomacao("AVISO_REAGENDAMENTO", id, { referencia: `${id}:${horarios.inicio.toISOString()}` });
   // permite novo lembrete antes do atendimento no novo horario
-  await prisma.automacaoEnvio.deleteMany({ where: { tipo: "LEMBRETE_ATENDIMENTO", referencia: id } });
+  await prisma.automacaoEnvio.deleteMany({ where: { tipo: "LEMBRETE_ATENDIMENTO", referencia: { in: [id, `${id}:2`] } } });
   notificarAgenda(tenantId, id, "reagendado");
   return { agendamento: await obterSerializado(tenantId, id), novoAgendamento: false };
 }

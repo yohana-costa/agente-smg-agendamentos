@@ -12,6 +12,12 @@ function estadoInicial(a: Automacao) {
   return { valor: String(a.disparoMin), unidade: 'min' as Unidade }
 }
 
+function estadoSegundo(min: number | null | undefined) {
+  if (!min) return { ativo: false, valor: '40', unidade: 'min' as Unidade }
+  if (min >= 60 && min % 60 === 0) return { ativo: true, valor: String(min / 60), unidade: 'h' as Unidade }
+  return { ativo: true, valor: String(min), unidade: 'min' as Unidade }
+}
+
 function paraMinutos(modo: string, valor: string, unidade: Unidade) {
   const n = Math.max(0, Number(valor) || 0)
   if (modo === 'dias-antes') return Math.round(n * 1440)
@@ -58,9 +64,13 @@ export function AutomacaoCard({ automacao, exemplos, onSalvo }: { automacao: Aut
   const [erro, setErro] = useState('')
   const [ok, setOk] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
+  const temSegundo = automacao.tipo === 'LEMBRETE_ATENDIMENTO'
+  const [segundo, setSegundo] = useState(() => estadoSegundo(automacao.segundoDisparoMin))
 
   const minutos = paraMinutos(meta.modo, valor, unidade)
-  const alterado = texto !== automacao.texto || (meta.modo !== 'imediato' && minutos !== automacao.disparoMin)
+  const segundoMin = temSegundo && segundo.ativo ? paraMinutos('antes', segundo.valor, segundo.unidade) : null
+  const alterado =
+    texto !== automacao.texto || (meta.modo !== 'imediato' && minutos !== automacao.disparoMin) || (temSegundo && segundoMin !== (automacao.segundoDisparoMin ?? null))
 
   function inserir(key: string) {
     const el = ref.current
@@ -93,18 +103,21 @@ export function AutomacaoCard({ automacao, exemplos, onSalvo }: { automacao: Aut
 
   async function salvar() {
     if (!texto.trim()) return setErro('O texto da mensagem não pode ficar vazio.')
+    if (segundoMin !== null && (segundoMin <= 0 || segundoMin >= minutos)) return setErro('O segundo lembrete precisa sair mais perto do horário do que o primeiro.')
     setSalvando(true)
     setErro('')
     setOk('')
     try {
       const body: Record<string, unknown> = { texto }
       if (meta.modo !== 'imediato') body.disparoMin = minutos
+      if (temSegundo) body.segundoDisparoMin = segundoMin
       const r = await patch<Automacao>(`/automacoes/${automacao.tipo}`, body)
       onSalvo(r)
       const i = estadoInicial(r)
       setTexto(r.texto)
       setValor(i.valor)
       setUnidade(i.unidade)
+      setSegundo(estadoSegundo(r.segundoDisparoMin))
       setOk('Salvo')
       setTimeout(() => setOk(''), 2500)
     } catch (e) {
@@ -135,6 +148,23 @@ export function AutomacaoCard({ automacao, exemplos, onSalvo }: { automacao: Aut
               Momento de disparo
             </div>
             <Disparo modo={meta.modo} valor={valor} unidade={unidade} onValor={(v) => (setValor(v), setOk(''))} onUnidade={(u) => (setUnidade(u), setOk(''))} />
+            {temSegundo ? (
+              <div className="stack-sm" style={{ marginTop: 10 }}>
+                <label className="row small" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                  <input type="checkbox" checked={segundo.ativo} onChange={(e) => (setSegundo({ ...segundo, ativo: e.target.checked }), setOk(''))} />
+                  Mandar um segundo lembrete
+                </label>
+                {segundo.ativo ? (
+                  <Disparo
+                    modo="antes"
+                    valor={segundo.valor}
+                    unidade={segundo.unidade}
+                    onValor={(v) => (setSegundo({ ...segundo, valor: v }), setOk(''))}
+                    onUnidade={(u) => (setSegundo({ ...segundo, unidade: u }), setOk(''))}
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div>
             <div className="field-label" style={{ marginBottom: 6 }}>
@@ -185,6 +215,7 @@ export function AutomacaoCard({ automacao, exemplos, onSalvo }: { automacao: Aut
                 setValor(i.valor)
                 setUnidade(i.unidade)
                 setTexto(automacao.texto)
+                setSegundo(estadoSegundo(automacao.segundoDisparoMin))
                 setErro('')
               }}
               disabled={salvando}

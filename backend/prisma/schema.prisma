@@ -849,6 +849,8 @@ model Automacao {
   // Momento do disparo em minutos. Significado depende do tipo
   // (ex.: LEMBRETE_ATENDIMENTO = minutos antes; POS_ATENDIMENTO = minutos depois; AVISO_RETORNO = dias antes * 1440).
   disparoMin Int           @default(0)
+  // So no LEMBRETE_ATENDIMENTO: segundo lembrete, em minutos antes (Studio Bella: 1 dia e 40 min antes).
+  segundoDisparoMin Int?
   texto      String
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
