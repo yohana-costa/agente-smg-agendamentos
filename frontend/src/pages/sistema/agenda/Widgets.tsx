@@ -174,7 +174,7 @@ export function ClienteSelect({ value, onChange }: { value: ClienteMin | null; o
         <span className="ag-avatar ag-avatar-cliente">{value.nome.slice(0, 1).toUpperCase()}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="strong">{value.nome}</div>
-          <div className="small muted">{phone(value.telefone)}</div>
+          {value.telefone ? <div className="small muted">{phone(value.telefone)}</div> : null}
           {value.observacoes ? <div className="small ag-obs">Obs.: {value.observacoes}</div> : null}
           {aviso ? <div className="small success-text">{aviso}</div> : null}
         </div>
@@ -221,7 +221,7 @@ export function ClienteSelect({ value, onChange }: { value: ClienteMin | null; o
                 const c = await post<Cliente & { jaExistia: boolean }>('/clientes', { nome: novo.nome.trim(), telefone: novo.telefone })
                 setAviso(
                   c.jaExistia
-                    ? `Este telefone já é de ${c.nome}: o agendamento fica no nome de ${c.nome}. Se for outra pessoa, cadastre com o telefone dela ou sem telefone.`
+                    ? `Este telefone já é de ${c.nome}: o agendamento fica no nome de ${c.nome}. Se for outra pessoa, cadastre com o telefone dela.`
                     : 'Cliente cadastrado.'
                 )
                 onChange({ id: c.id, nome: c.nome, telefone: c.telefone, observacoes: c.observacoes })
@@ -253,7 +253,7 @@ export function ClienteSelect({ value, onChange }: { value: ClienteMin | null; o
           {(data || []).map((c) => (
             <button type="button" key={c.id} className="ag-cliente-opt" onClick={() => onChange({ id: c.id, nome: c.nome, telefone: c.telefone, observacoes: c.observacoes })}>
               <span className="strong">{c.nome}</span>
-              <span className="small muted">{phone(c.telefone)}</span>
+              {c.telefone ? <span className="small muted">{phone(c.telefone)}</span> : <span className="small danger-text">sem WhatsApp</span>}
             </button>
           ))}
           {!loading && data && !data.length ? <div className="small muted ag-pad">Nenhum cliente encontrado.</div> : null}

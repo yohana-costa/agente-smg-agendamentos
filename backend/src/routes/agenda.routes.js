@@ -240,6 +240,7 @@ router.post(
       tenantId: req.auth.tenantId,
       origem: "MANUAL",
       clienteId: body.clienteId,
+      telefoneCliente: body.telefoneCliente,
       cliente: body.cliente,
       servicoIds: body.servicoIds,
       profissionalId: body.profissionalId,

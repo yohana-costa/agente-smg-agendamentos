@@ -12,7 +12,7 @@ const { dispararAutomacao } = require("./automacao.service");
 const { enviarTexto } = require("./whatsapp/whatsapp.service");
 const { badRequest, notFound, conflict, createAppError } = require("../lib/errors");
 const { addMinutes, zonedParts, zonedToUtc, addDays, isDateStr, formatDateBr, formatTimeBr } = require("../lib/time");
-const { brl, log, textOrNull, toInt, normalizePhone } = require("../lib/helpers");
+const { brl, log, textOrNull, toInt, normalizePhone, requirePhone } = require("../lib/helpers");
 
 const INCLUDE_COMPLETO = {
   cliente: true,
@@ -169,6 +169,24 @@ async function sobreposicoes(tx, { tenantId, profissionalId, inicio, fimInterval
   });
 }
 
+const temTelefone = (c) => Boolean(c?.telefone) && !String(c.telefone).startsWith("mesclado-");
+
+/** Cliente sem telefone: grava o numero informado ou recusa o agendamento. */
+async function garantirTelefone(tx, tenantId, cliente, telefoneInformado) {
+  if (temTelefone(cliente)) return cliente;
+  if (!normalizePhone(telefoneInformado || "")) {
+    throw badRequest(`${cliente.nome || "Esta cliente"} não tem WhatsApp cadastrado. Informe o telefone para agendar.`, { exigeTelefone: true, clienteId: cliente.id });
+  }
+  const telefone = requirePhone(telefoneInformado);
+  const outro = await tx.cliente.findUnique({ where: { tenantId_telefone: { tenantId, telefone } } });
+  if (outro && outro.id !== cliente.id) {
+    throw conflict(`Este telefone já é do cadastro de ${outro.nome}. Junte os dois cadastros ou use o de ${outro.nome}.`, {
+      telefoneDeOutro: { id: outro.id, nome: outro.nome, telefone: outro.telefone },
+    });
+  }
+  return tx.cliente.update({ where: { id: cliente.id }, data: { telefone } });
+}
+
 /**
  * Cria agendamento.
  * pagamento: "LINK" (envia link pelo WhatsApp), "PIX" (QR na tela), "LOCAL" (dinheiro/maquininha no local),
@@ -247,10 +265,14 @@ async function criar(input) {
         if (choques.length) throw conflict("Este horário acabou de ser ocupado. Escolha outro horário.");
       }
 
-      const cliente = input.clienteId
+      let cliente = input.clienteId
         ? await tx.cliente.findFirst({ where: { id: input.clienteId, tenantId } })
         : await encontrarOuCriarCliente(tenantId, input.cliente || {}, tx);
       if (!cliente) throw badRequest("Cliente nao encontrado.");
+      // Sem WhatsApp a cliente nao recebe lembrete e a IA nao acha o horario dela (Madalena e
+      // Marlene, 13/11/2026: horarios no cadastro importado sem telefone). Novo agendamento so
+      // com telefone; o painel manda o numero junto e ele fica salvo na ficha.
+      if (!ignorarAgendamentoId) cliente = await garantirTelefone(tx, tenantId, cliente, input.telefoneCliente);
 
       let itensServico = servicos.map((s, ordem) => ({
         servicoId: s.id,

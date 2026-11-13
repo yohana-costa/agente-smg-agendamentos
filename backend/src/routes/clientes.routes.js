@@ -4,7 +4,7 @@ const metricas = require("../services/metricas.service");
 const agendamentoService = require("../services/agendamento.service");
 const { encontrarOuCriarCliente } = require("../services/cliente.service");
 const pacoteService = require("../services/pacote.service");
-const { badRequest, notFound, forbidden } = require("../lib/errors");
+const { badRequest, notFound, forbidden, conflict } = require("../lib/errors");
 const { asyncHandler, ok, textOrEmpty, textOrNull, requirePhone, toInt } = require("../lib/helpers");
 
 const router = express.Router();
@@ -126,7 +126,7 @@ router.patch(
       const telefone = requirePhone(req.body.telefone);
       if (telefone !== cliente.telefone) {
         const outro = await prisma.cliente.findUnique({ where: { tenantId_telefone: { tenantId: req.auth.tenantId, telefone } } });
-        if (outro) throw badRequest("Ja existe outro cliente com este telefone. Use Mesclar cadastros.");
+        if (outro) throw conflict(`Este telefone já é do cadastro de ${outro.nome}. Use Mesclar cadastros.`, { telefoneDeOutro: { id: outro.id, nome: outro.nome, telefone: outro.telefone } });
         data.telefone = telefone;
       }
     }

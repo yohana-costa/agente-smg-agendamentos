@@ -1,6 +1,6 @@
 // Novo agendamento (escopo 6.3): cliente, servicos, profissional, data/horario, produtos, pagamento, observacoes.
 import { useEffect, useMemo, useState } from 'react'
-import { errorMessage, get, post } from '../../../lib/api'
+import { ApiError, errorMessage, get, post } from '../../../lib/api'
 import { brl, dateLong, duration, todayStr } from '../../../lib/format'
 import { useAsync } from '../../../lib/hooks'
 import { useAuth } from '../../../lib/auth'
@@ -11,6 +11,8 @@ import { conflitosDoErro, pagamentoPixPendente } from './utils'
 import { ClienteSelect, ConflitosAviso, HorariosPicker, PixBox } from './Widgets'
 
 type FormaPagamento = 'LINK' | 'PIX' | 'LOCAL'
+
+const temWhatsapp = (tel?: string | null) => Boolean(tel) && !String(tel).startsWith('mesclado-')
 
 export function NovoAgendamentoModal({
   refs,
@@ -46,6 +48,31 @@ export function NovoAgendamentoModal({
   const [criadoId, setCriadoId] = useState<string | null>(null)
   const [pacotesCliente, setPacotesCliente] = useState<PacoteCliente[]>([])
   const [usarPacote, setUsarPacote] = useState(true)
+  // cliente sem WhatsApp: o numero vai junto com o agendamento e fica salvo na ficha
+  const [telefoneCliente, setTelefoneCliente] = useState('')
+  const [telefoneDeOutro, setTelefoneDeOutro] = useState<ClienteMin | null>(null)
+  const semTelefone = Boolean(cliente && !temWhatsapp(cliente.telefone))
+
+  function escolherCliente(c: ClienteMin | null) {
+    setCliente(c)
+    setTelefoneCliente('')
+    setTelefoneDeOutro(null)
+  }
+
+  async function juntarCadastros() {
+    if (!cliente || !telefoneDeOutro) return
+    setBusy(true)
+    setError('')
+    try {
+      await post('/clientes/mesclar', { manterId: telefoneDeOutro.id, removerId: cliente.id })
+      const r = await get<{ cliente: Cliente }>(`/clientes/${telefoneDeOutro.id}`)
+      escolherCliente({ id: r.cliente.id, nome: r.cliente.nome, telefone: r.cliente.telefone, observacoes: r.cliente.observacoes })
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   // saldo de pacotes do cliente escolhido (para oferecer "usar pacote")
   useEffect(() => {
@@ -109,6 +136,7 @@ export function NovoAgendamentoModal({
   async function salvar(encaixe = false) {
     setError('')
     if (!cliente) return setError('Escolha ou cadastre o cliente.')
+    if (semTelefone && telefoneCliente.replace(/\D/g, '').length < 10) return setError(`Informe o WhatsApp de ${cliente.nome} com DDD. Sem o número ela não recebe o lembrete.`)
     if (!servicoIds.length) return setError('Escolha pelo menos um serviço.')
     if (!profissionalId || profInvalido) return setError('Escolha um profissional habilitado para todos os serviços.')
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || !/^\d{2}:\d{2}$/.test(hora)) return setError('Escolha a data e o horário.')
@@ -116,6 +144,7 @@ export function NovoAgendamentoModal({
     try {
       const ag = await post<Agendamento>('/agenda/agendamentos', {
         clienteId: cliente.id,
+        telefoneCliente: semTelefone ? telefoneCliente : undefined,
         servicoIds,
         profissionalId,
         data,
@@ -142,7 +171,9 @@ export function NovoAgendamentoModal({
       else onClose()
     } catch (e) {
       const c = conflitosDoErro(e)
+      const outro = e instanceof ApiError ? (e.details?.telefoneDeOutro as ClienteMin | undefined) : undefined
       if (c) setConflitos(c)
+      else if (outro) setTelefoneDeOutro(outro)
       else setError(errorMessage(e))
     } finally {
       setBusy(false)
@@ -182,7 +213,39 @@ export function NovoAgendamentoModal({
           <div className="ag-step-title">
             <span className="ag-step-n">1</span> Cliente
           </div>
-          <ClienteSelect value={cliente} onChange={setCliente} />
+          <ClienteSelect value={cliente} onChange={escolherCliente} />
+          {semTelefone && cliente ? (
+            <div className="banner warning-banner stack-sm">
+              <div>
+                <strong>{cliente.nome}</strong> não tem WhatsApp cadastrado. Para agendar, informe o número: ele fica salvo na ficha e a cliente passa a receber o lembrete.
+              </div>
+              <input
+                className="input"
+                inputMode="tel"
+                placeholder="(11) 98888-7777"
+                value={telefoneCliente}
+                onChange={(e) => {
+                  setTelefoneCliente(e.target.value)
+                  setTelefoneDeOutro(null)
+                }}
+              />
+              {telefoneDeOutro ? (
+                <div className="stack-sm">
+                  <div>
+                    Este número já é do cadastro de <strong>{telefoneDeOutro.nome}</strong>. Se for a mesma pessoa, junte os dois cadastros (o histórico vai todo para um só).
+                  </div>
+                  <div className="row">
+                    <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={juntarCadastros}>
+                      Juntar cadastros e usar
+                    </button>
+                    <button type="button" className="btn btn-sm" disabled={busy} onClick={() => escolherCliente(telefoneDeOutro)}>
+                      Só usar o de {telefoneDeOutro.nome}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         <section className="ag-step">

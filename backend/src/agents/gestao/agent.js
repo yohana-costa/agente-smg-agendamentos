@@ -129,7 +129,7 @@ function allTools(ctx) {
         const ag = await agendamentoService.criar({
           tenantId,
           origem: "MANUAL",
-          ...(clienteId ? { clienteId } : { cliente: { telefone: i.cliente_telefone, nome: i.cliente_nome } }),
+          ...(clienteId ? { clienteId, telefoneCliente: i.cliente_telefone } : { cliente: { telefone: i.cliente_telefone, nome: i.cliente_nome } }),
           servicoIds: i.servico_ids,
           profissionalId: i.profissional_id,
           data: i.data,

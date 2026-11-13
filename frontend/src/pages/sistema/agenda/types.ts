@@ -134,7 +134,7 @@ export interface Filtros {
 export interface ClienteMin {
   id: string
   nome: string
-  telefone: string
+  telefone: string | null
   observacoes?: string | null
 }
 
