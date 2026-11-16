@@ -14,6 +14,7 @@ export interface AgenteConfig {
   mensagemEscalonamento: string
   numeroEscalonamento: string | null
   tempoRetornoMin: number
+  atendimentoAcolhedor: boolean
   gestaoAtivo: boolean
   updatedAt?: string
 }

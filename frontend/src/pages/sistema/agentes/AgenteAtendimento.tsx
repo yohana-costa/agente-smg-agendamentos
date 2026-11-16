@@ -28,11 +28,11 @@ export function AgenteAtendimento({ dados, onConfig, irPara }: { dados: AgentesD
     setOk('')
   }
 
-  async function alternar(ativo: boolean) {
+  async function alternar(ativo: boolean, campo: 'atendimentoAtivo' | 'atendimentoAcolhedor' = 'atendimentoAtivo') {
     setAlternando(true)
     setErro('')
     try {
-      const r = await patch<AgenteConfig>('/agentes/atendimento', { atendimentoAtivo: ativo })
+      const r = await patch<AgenteConfig>('/agentes/atendimento', { [campo]: ativo })
       onConfig(semSegredos(r))
     } catch (e) {
       setErro(errorMessage(e))
@@ -77,7 +77,7 @@ export function AgenteAtendimento({ dados, onConfig, irPara }: { dados: AgentesD
             Fala com os clientes no WhatsApp. Responsável apenas por agendamentos: informa horários, registra o agendamento e envia o link de pagamento.
           </div>
         </div>
-        <Toggle checked={c.atendimentoAtivo} disabled={alternando} onChange={alternar} label={c.atendimentoAtivo ? 'Ativo' : 'Desativado'} />
+        <Toggle checked={c.atendimentoAtivo} disabled={alternando} onChange={(v) => alternar(v)} label={c.atendimentoAtivo ? 'Ativo' : 'Desativado'} />
       </div>
 
       <div className="ia-rules">
@@ -111,6 +111,18 @@ export function AgenteAtendimento({ dados, onConfig, irPara }: { dados: AgentesD
               </Field>
               <Field label="Forma de se apresentar" className="full" hint="Usada quando a cliente começa o atendimento (ex.: só manda um bom dia). Escreva {link} para incluir o link de agendamento.">
                 <textarea className="textarea" rows={2} value={form.personaApresentacao} onChange={(e) => set('personaApresentacao', e.target.value)} />
+              </Field>
+              <Field
+                label="Atendimento acolhedor"
+                className="full"
+                hint="Quando a cliente diz que quer agendar, o agente sempre manda o link do site, e usa o nome dela só de vez em quando (não em toda mensagem). Salva na hora."
+              >
+                <Toggle
+                  checked={Boolean(c.atendimentoAcolhedor)}
+                  disabled={alternando}
+                  onChange={(v) => alternar(v, 'atendimentoAcolhedor')}
+                  label={c.atendimentoAcolhedor ? 'Ligado' : 'Desligado'}
+                />
               </Field>
             </div>
           </Card>
