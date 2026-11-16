@@ -349,6 +349,38 @@ function afirmouSemAgendar(r) {
   return !(r.usedTools || []).some((t) => t.ok && ["criar_agendamento", "reagendar_agendamento"].includes(t.name));
 }
 
+// Atendimento acolhedor (AgenteConfig.atendimentoAcolhedor, pedido da Dra. Barbara em 16/11/2026).
+// So o prompt nao segurou: o gpt-4.1-mini oferecia horarios em vez do link quando a cliente dizia
+// "quero agendar" e repetia "Ana, ..." em quase toda resposta.
+const QUER_AGENDAR = /\b(quer[oi]a?|gostaria(\s+de)?|desejo|preciso|vou|posso|podemos|vamos|bora|consigo)\s+(\w+\s+)?(agendar|marcar|reservar)\b|\b(agendar|marcar)\s+sim\b/i;
+const SIM_CURTO = /^\s*(sim|quero|quero sim|pode ser|pode|claro|bora|vamos|ok|isso)\s*[!.]*\s*$/i;
+const AVISO_MANDAR_LINK = (link) =>
+  `ATENCAO (interno): a cliente disse que quer agendar. Mande o link do site de agendamento NESTA resposta, para ela escolher o melhor dia e horario: ${link} . Se ela pediu dia ou horario especifico, pode mostrar os horarios tambem, mas com o link junto.`;
+
+async function querAgendarAgora(conversaId, textoDaCliente) {
+  if (QUER_AGENDAR.test(textoDaCliente)) return true;
+  // "sim"/"quero" curto so conta se a ultima fala do atendimento era sobre agendar ou horarios
+  if (!SIM_CURTO.test(textoDaCliente.split("\n").pop() || "")) return false;
+  const ultima = await prisma.mensagem.findFirst({ where: { conversaId, autor: { in: ["AGENTE", "HUMANO"] } }, orderBy: { createdAt: "desc" }, select: { texto: true } });
+  return /agend|marcar|hor[aá]rio/i.test(ultima?.texto || "");
+}
+
+// Tira o vocativo com o nome da cliente ("Ana, temos..." / "..., Ana.") quando ele ja apareceu em uma
+// das duas ultimas respostas do atendimento. Sem cadastro, usa o nome do "Prazer, Ana!" da conversa.
+async function espacarNome(texto, conversaId, nomeCompleto) {
+  const anteriores = await prisma.mensagem.findMany({ where: { conversaId, autor: "AGENTE" }, orderBy: { createdAt: "desc" }, take: 6, select: { texto: true } });
+  const doPrazer = anteriores.map((m) => /\b[Pp]razer,\s+(\p{Lu}\p{L}+)/u.exec(m.texto || "")?.[1]).find(Boolean);
+  const nome = String(nomeCompleto || doPrazer || "").trim().split(/\s+/)[0];
+  if (!nome || nome.length < 2) return texto;
+  const esc = nome.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const temNome = new RegExp(`(^|[^\\p{L}])${esc}(?![\\p{L}])`, "iu");
+  if (!temNome.test(texto)) return texto;
+  if (!anteriores.slice(0, 2).some((m) => temNome.test(m.texto || ""))) return texto;
+  return texto
+    .replace(new RegExp(`(^|[.!?]\\s+|\\n)${esc},\\s*(\\p{L})`, "giu"), (_, ini, letra) => ini + letra.toUpperCase())
+    .replace(new RegExp(`,\\s*${esc}(?=\\s*[.!?])`, "giu"), "");
+}
+
 async function processarConversa(conversaId, { simulacao = false } = {}) {
   if (running.has(conversaId)) {
     agendar(conversaId, { simulacao });
@@ -453,10 +485,17 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
         avisoEquipe = [{ role: "system", content: AVISO_RESPONDENDO_EQUIPE + extra }];
       }
       if (avisoEquipe.length) log("agentes", "cliente_respondendo_equipe", { conversaId });
+      const mandarLink =
+        config.atendimentoAcolhedor &&
+        (pagamentoDisponivel || tenant.pagarNoLocalAtivo) &&
+        !linkJaEnviado &&
+        !avisoEquipe.length &&
+        (await querAgendarAgora(conversaId, ctx.textoDaCliente));
+      const avisoLink = mandarLink ? [{ role: "system", content: AVISO_MANDAR_LINK(linkSite) }] : [];
       const gerar = (extra = []) =>
         gerarResposta({
           systemPrompt,
-          history: [...history, ...avisoEquipe, ...extra],
+          history: [...history, ...avisoEquipe, ...avisoLink, ...extra],
           tools: atendimentoAgent.buildTools(ctx),
           shouldStop: () => Boolean(ctx.escalonamento),
           apiKey: config.openaiApiKey,
@@ -493,7 +532,16 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
         await escalar(conversa, ctx.escalonamento.motivo, { tenant, config, simulacao, tipo: ctx.escalonamento.tipo, mensagemCliente: ctx.escalonamento.mensagemCliente });
         return { escalonado: true, motivo: ctx.escalonamento.motivo, usedTools: r.usedTools };
       }
-      const texto = limparFrasesProntas(r.text);
+      let texto = limparFrasesProntas(r.text);
+      if (config.atendimentoAcolhedor) {
+        texto = await espacarNome(texto, conversaId, ctx.cliente?.nome);
+        // a IA ignorou o aviso: o link vai no fim (criar_agendamento ok ja mandou o link de pagamento)
+        const criou = (r.usedTools || []).some((t) => t.ok && t.name === "criar_agendamento");
+        if (mandarLink && !criou && !texto.includes(linkSite)) {
+          log("agentes", "link_acrescentado", { conversaId });
+          texto = `${texto}\n\nSe preferir, você pode escolher o melhor dia e horário direto pelo nosso site: ${linkSite}`;
+        }
+      }
       for (const parte of quebrarMensagem(texto)) await enviarTexto(tenant.id, conversa.telefone, parte, enviarOpts);
       return { texto, usedTools: r.usedTools };
     }

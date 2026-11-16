@@ -131,6 +131,7 @@ router.patch(
     if (b.numeroEscalonamento !== undefined) data.numeroEscalonamento = b.numeroEscalonamento ? requirePhone(b.numeroEscalonamento) : null;
     if (b.tempoRetornoMin !== undefined) data.tempoRetornoMin = toInt(b.tempoRetornoMin, 15, { min: 1, max: 1440 });
     if (b.gestaoAtivo !== undefined) data.gestaoAtivo = toBool(b.gestaoAtivo);
+    if (b.atendimentoAcolhedor !== undefined) data.atendimentoAcolhedor = toBool(b.atendimentoAcolhedor);
     const config = await prisma.agenteConfig.update({ where: { tenantId: req.auth.tenantId }, data });
     return ok(res, { ...config, webhookToken: undefined, openaiApiKey: undefined, openaiApiKeyConfigurada: Boolean(config.openaiApiKey), whatsappConfig: mascarar(config) });
   })

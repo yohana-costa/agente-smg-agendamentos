@@ -757,6 +757,9 @@ model AgenteConfig {
   mensagemEscalonamento  String  @default("Vou encaminhar seu atendimento para uma pessoa da nossa equipe. Em instantes alguem fala com voce.")
   numeroEscalonamento    String?
   tempoRetornoMin        Int     @default(15)
+  // Pedido da Dra. Barbara (16/11/2026): link do site sempre que a cliente diz que quer agendar e
+  // nome da cliente espacado nas respostas
+  atendimentoAcolhedor   Boolean @default(false)
 
   // Agente de Gestao
   gestaoAtivo Boolean @default(true)
