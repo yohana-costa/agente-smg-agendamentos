@@ -381,6 +381,15 @@ async function espacarNome(texto, conversaId, nomeCompleto) {
     .replace(new RegExp(`,\\s*${esc}(?=\\s*[.!?])`, "giu"), "");
 }
 
+const AFIRMA_ENVIOU = /\b(enviei|mandei|foram (enviad|mandad|disparad)|foi (enviad|mandad|disparad)|(mensage(m|ns)|confirma[cç](ao|ão|oes|ões)) (j[aá] )?(enviad|mandad|disparad))/i;
+const AVISO_AFIRMOU_ENVIO =
+  "ATENCAO (interno): sua resposta dizia que mensagens foram enviadas, mas `enviar_confirmacao_clientes` NAO foi executada com sucesso nesta resposta: NADA foi enviado para as clientes. Se o pedido ja esta confirmado, chame `enviar_confirmacao_clientes` com confirmado=true agora e responda com a lista de enviados que ela devolver. Se falta confirmar, mostre a previa e pergunte. Nunca diga que enviou sem a ferramenta retornar ok.";
+
+function afirmouEnviarSemFerramenta(r) {
+  if (!AFIRMA_ENVIOU.test(String(r?.text || ""))) return false;
+  return !(r.usedTools || []).some((t) => t.ok && t.name === "enviar_confirmacao_clientes");
+}
+
 async function processarConversa(conversaId, { simulacao = false } = {}) {
   if (running.has(conversaId)) {
     agendar(conversaId, { simulacao });
@@ -559,13 +568,23 @@ async function processarConversa(conversaId, { simulacao = false } = {}) {
     if (!autorizado) return null;
     const ctx = { tenant, autorizado };
     const tools = gestaoAgent.buildTools(ctx);
-    const r = await gerarResposta({
-      systemPrompt: gestaoAgent.buildSystemPrompt({ tenant, autorizado, ferramentas: tools.map((t) => t.name), assistente }),
-      history: await historico(conversaId),
-      tools,
-      apiKey: config.openaiApiKey,
-      model: config.openaiModel,
-    });
+    const historicoGestao = await historico(conversaId);
+    const gerarGestao = (extra = []) =>
+      gerarResposta({
+        systemPrompt: gestaoAgent.buildSystemPrompt({ tenant, autorizado, ferramentas: tools.map((t) => t.name), assistente }),
+        history: [...historicoGestao, ...extra],
+        tools,
+        apiKey: config.openaiApiKey,
+        model: config.openaiModel,
+      });
+    let r = await gerarGestao();
+    // "As mensagens foram enviadas" sem ferramenta nenhuma de envio (Dra. Barbara, 17 e 19/11/2026:
+    // pediu confirmacao para as clientes duas vezes e nada saiu). Refaz; insistindo, admite que nao enviou.
+    if (afirmouEnviarSemFerramenta(r)) {
+      log("agentes", "gestao_afirmou_envio_sem_ferramenta", { conversaId, texto: String(r.text).slice(0, 200) });
+      r = await gerarGestao([{ role: "system", content: AVISO_AFIRMOU_ENVIO }]);
+      if (afirmouEnviarSemFerramenta(r)) r = { ...r, text: "Desculpe, nenhuma mensagem foi enviada para as clientes. Me peça de novo dizendo o dia (ex.: \"mande confirmação para os agendamentos de amanhã\") que eu envio." };
+    }
     const textoGestao = limparFrasesProntas(r.text);
     for (const parte of quebrarMensagem(textoGestao)) await enviarTexto(tenant.id, conversa.telefone, parte, enviarOpts);
     return { texto: textoGestao, usedTools: r.usedTools };

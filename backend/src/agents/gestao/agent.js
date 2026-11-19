@@ -24,6 +24,7 @@ function buildSystemPrompt({ tenant, autorizado, ferramentas, assistente = false
     "",
     "Regras:",
     "- Use apenas dados retornados pelas ferramentas. Nunca invente numeros, nomes ou horarios.",
+    "- Nunca diga que enviou, mandou, marcou, bloqueou ou alterou algo sem a ferramenta ter retornado ok NESTA resposta. Mandar mensagem para clientes so com `enviar_confirmacao_clientes`; se ela nao estiver na lista de ferramentas, diga que isso nao esta disponivel por este numero.",
     "- Toda pergunta sobre dados (agenda, estoque, validade, clientes, vendas, pagamentos, duvidas pendentes...) exige chamar a ferramenta correspondente NESTA resposta, mesmo que algo parecido ja tenha sido respondido antes. Nunca responda que nao ha nada sem ter consultado.",
     "- Nao termine as respostas com ofertas prontas como \"Posso ajudar em mais alguma coisa?\".",
     "- Para alterar dados, confirme o pedido em uma frase antes quando houver ambiguidade (ex.: qual profissional, qual cliente).",
@@ -185,11 +186,75 @@ function allTools(ctx) {
       modulo: "agenda",
       acao: "alterar",
       name: "iniciar_atendimento",
-      description: "Marca o atendimento como iniciado (botao Iniciar). So para agendamento confirmado.",
+      description:
+        "Marca o atendimento como iniciado (botao Iniciar): a cliente CHEGOU e o atendimento esta comecando agora. So quando pedirem explicitamente para iniciar um atendimento. Nunca use para confirmar horario ou avisar clientes (para isso: enviar_confirmacao_clientes).",
       schema: z.object({ agendamento_id: z.string() }),
       handler: async ({ agendamento_id }) => {
+        // Dra. Barbara, 19/11/2026: pediu "mande confirmacao para os agendamentos de hoje" e a IA iniciou os 5 do dia
+        const ag = await prisma.agendamento.findFirst({ where: { id: agendamento_id, tenantId }, select: { inicio: true } });
+        if (ag && ag.inicio.getTime() - Date.now() > 60 * 60 * 1000) {
+          return { ok: false, error: "Esse atendimento ainda nao esta na hora (falta mais de 1h). Iniciar e so quando a cliente chegou. Para confirmar horario com a cliente use enviar_confirmacao_clientes." };
+        }
         const a = await agendamentoService.iniciar(tenantId, agendamento_id);
         return { ok: true, status: a.status };
+      },
+    },
+    {
+      modulo: "agenda",
+      acao: "alterar",
+      name: "enviar_confirmacao_clientes",
+      description:
+        "Unica forma de mandar mensagem para as clientes: envia pelo WhatsApp a mensagem de confirmacao de horario (o lembrete com os botoes Confirmar e Cancelar) para os agendamentos confirmados de um dia ou periodo. Primeiro chame com confirmado=false para ver quem vai receber, mostre a lista e peca confirmacao; depois chame com confirmado=true. So diga que enviou depois do retorno ok com a lista de enviados.",
+      schema: z.object({
+        data: z.string().describe("AAAA-MM-DD (primeiro dia)"),
+        data_fim: z.string().optional().describe("AAAA-MM-DD (ultimo dia, se for um periodo)"),
+        profissional_id: z.string().optional(),
+        agendamento_ids: z.array(z.string()).optional().describe("So estes agendamentos (opcional)"),
+        confirmado: z.boolean(),
+      }),
+      handler: async ({ data, data_fim, profissional_id, agendamento_ids, confirmado }) => {
+        const lembrete = await prisma.automacao.findUnique({ where: { tenantId_tipo: { tenantId, tipo: "LEMBRETE_ATENDIMENTO" } }, select: { ativo: true } });
+        if (!lembrete?.ativo) return { ok: false, error: "A automacao 'Lembrete antes do horario' esta desligada. Ligue em Automacoes para poder enviar a confirmacao." };
+        const { start } = dayRangeUtc(data, tz);
+        const { end } = dayRangeUtc(data_fim || data, tz);
+        const ags = await prisma.agendamento.findMany({
+          where: {
+            tenantId,
+            status: "CONFIRMADO",
+            inicio: { gte: new Date(Math.max(start.getTime(), Date.now())), lt: end },
+            ...(profissional_id ? { profissionalId: profissional_id } : {}),
+            ...(agendamento_ids?.length ? { id: { in: agendamento_ids } } : {}),
+          },
+          include: agendamentoService.INCLUDE_COMPLETO,
+          orderBy: { inicio: "asc" },
+        });
+        const lista = ags.map((a) => agendamentoService.serializar(a, tenant));
+        const rotulo = (a) => `${a.cliente?.nome || "cliente"} (${a.data.slice(8, 10)}/${a.data.slice(5, 7)} ${a.hora}, ${a.servicos.map((s) => s.nome).join(" + ")})`;
+        if (!lista.length) return { ok: true, enviados: [], aviso: "Nenhum agendamento confirmado (e ainda por acontecer) nesse periodo." };
+        if (!confirmado) {
+          return {
+            ok: false,
+            previa: lista.map((a) => ({ cliente: rotulo(a), semTelefone: !a.cliente?.telefone })),
+            error: "Ainda NADA foi enviado. Mostre esta lista e peca confirmacao; depois chame de novo com confirmado=true.",
+          };
+        }
+        const { dispararAutomacao } = require("../../services/automacao.service");
+        const enviados = [];
+        const falharam = [];
+        const stamp = Date.now();
+        for (const a of lista) {
+          if (!a.cliente?.telefone) {
+            falharam.push({ cliente: rotulo(a), motivo: "sem telefone no cadastro" });
+            continue;
+          }
+          // ":" separa o id do agendamento: o botao Confirmar/Cancelar da resposta acha o agendamento por ele
+          const referencia = `${a.id}:pedido${stamp}`;
+          await dispararAutomacao("LEMBRETE_ATENDIMENTO", a.id, { referencia });
+          const envio = await prisma.automacaoEnvio.findUnique({ where: { tipo_referencia: { tipo: "LEMBRETE_ATENDIMENTO", referencia } } });
+          if (envio?.sucesso) enviados.push(rotulo(a));
+          else falharam.push({ cliente: rotulo(a), motivo: envio?.erro || "nao enviado" });
+        }
+        return { ok: true, enviados, falharam };
       },
     },
     {
