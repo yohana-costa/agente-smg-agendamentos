@@ -15,6 +15,7 @@ const { assistenteTools } = require("./assistente.tools");
 const MODULOS = ["agenda", "clientes", "servicos", "produtos", "equipe", "financeiro", "desempenho"];
 
 const reais = (v) => Math.round(Number(v || 0) * 100);
+const MESES = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
 function buildSystemPrompt({ tenant, autorizado, ferramentas, assistente = false }) {
   return [
@@ -566,6 +567,63 @@ function allTools(ctx) {
       handler: async () => ({ ok: true, profissionais: await prisma.profissional.findMany({ where: { tenantId }, select: { id: true, nome: true, ativo: true } }) }),
     },
     // ---------- financeiro ----------
+    // Regras de sinal/pagamento antecipado (Dra. Barbara, 19/11/2026: "para os agendamentos de dezembro tem
+    // que pedir o sinal de 30%" e a IA dizia que o numero nao tinha permissao).
+    {
+      modulo: "financeiro",
+      acao: "consultar",
+      name: "regras_pagamento",
+      description:
+        "Regras de pagamento do site e da IA: % do sinal, meses com pagamento antecipado obrigatorio (ex.: dezembro) e se aceita pagar no local. Mostra tambem quantos agendamentos ja marcados nesses meses estao sem nada pago.",
+      schema: z.object({}),
+      handler: async () => {
+        const t = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { sinalPct: true, mesesPagamentoAntecipado: true, pagarNoLocalAtivo: true } });
+        const hoje = todayStr(tz);
+        const anoAtual = Number(hoje.slice(0, 4));
+        const mesAtual = Number(hoje.slice(5, 7));
+        const semSinal = [];
+        for (const mes of t.mesesPagamentoAntecipado || []) {
+          const ano = mes < mesAtual ? anoAtual + 1 : anoAtual;
+          const ini = `${ano}-${String(mes).padStart(2, "0")}-01`;
+          const fim = mes === 12 ? `${ano + 1}-01-01` : `${ano}-${String(mes + 1).padStart(2, "0")}-01`;
+          const ags = await prisma.agendamento.findMany({
+            where: { tenantId, status: "CONFIRMADO", inicio: { gte: dayRangeUtc(ini, tz).start, lt: dayRangeUtc(fim, tz).start } },
+            select: { pagamentos: { select: { status: true } } },
+          });
+          semSinal.push({ mes: `${String(mes).padStart(2, "0")}/${ano}`, agendamentosConfirmados: ags.length, semNadaPago: ags.filter((a) => !a.pagamentos.some((p) => p.status === "APROVADO")).length });
+        }
+        return {
+          ok: true,
+          sinalPct: t.sinalPct,
+          mesesPagamentoAntecipado: (t.mesesPagamentoAntecipado || []).map((m) => MESES[m - 1]),
+          aceitaPagarNoLocal: t.pagarNoLocalAtivo,
+          comoFunciona:
+            "Nos meses de pagamento antecipado, quem agenda pelo site ou pela IA do WhatsApp so confirma o horario pagando o sinal online. Agendamentos que a equipe marca pelo painel nao cobram sinal automaticamente.",
+          agendamentosJaMarcados: semSinal,
+        };
+      },
+    },
+    {
+      modulo: "financeiro",
+      acao: "alterar",
+      name: "alterar_regras_pagamento",
+      description:
+        "Muda as regras de pagamento do site e da IA: % do sinal (1 a 100) e/ou os meses com pagamento antecipado obrigatorio (1 a 12, lista completa que deve ficar valendo). Antes consulte regras_pagamento: se ja estiver como pedido, diga que ja esta configurado. So altere com confirmado=true depois de mostrar a mudanca e a pessoa confirmar.",
+      schema: z.object({
+        sinal_pct: z.number().int().min(1).max(100).optional(),
+        meses_antecipados: z.array(z.number().int().min(1).max(12)).optional(),
+        confirmado: z.boolean(),
+      }),
+      handler: async ({ sinal_pct, meses_antecipados, confirmado }) => {
+        if (sinal_pct === undefined && !meses_antecipados) return { ok: false, error: "Diga o que mudar: % do sinal e/ou meses." };
+        if (!confirmado) return { ok: false, error: "Ainda NADA foi alterado. Mostre a mudanca e peca confirmacao; depois chame com confirmado=true." };
+        const data = {};
+        if (sinal_pct !== undefined) data.sinalPct = sinal_pct;
+        if (meses_antecipados) data.mesesPagamentoAntecipado = [...new Set(meses_antecipados)].sort((a, b) => a - b);
+        const t = await prisma.tenant.update({ where: { id: tenantId }, data, select: { sinalPct: true, mesesPagamentoAntecipado: true } });
+        return { ok: true, sinalPct: t.sinalPct, mesesPagamentoAntecipado: t.mesesPagamentoAntecipado.map((m) => MESES[m - 1]) };
+      },
+    },
     {
       modulo: "financeiro",
       acao: "consultar",
